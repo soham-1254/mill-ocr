@@ -84,8 +84,11 @@ def login_page():
         user = USERS.get(username)
         if user and user["password"] == password:
             login_user(username, user["role"])
+            st.session_state["login_time"] = st.session_state.get("login_time", 0)
             st.success("✅ Login successful! Redirecting...")
-            st.rerun()
+            st.session_state["authenticated"] = True
+            st.experimental_set_query_params(page="home")  # Safe on Streamlit Cloud
+            st.session_state["reroute"] = True
         else:
             st.error("❌ Invalid credentials. Try again.")
 
@@ -234,7 +237,7 @@ def homepage():
 # ======================================================
 # 🚦 PAGE ROUTING
 # ======================================================
-if not st.session_state.user:
+if not st.session_state.get("user"):
     login_page()
 else:
     homepage()

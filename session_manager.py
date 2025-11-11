@@ -2,51 +2,48 @@ import streamlit as st
 import time
 
 # ================================================
-# ⚙️ Session Manager — for Login / Logout / Timeout
+# ⚙️ Session Manager — Login / Logout / Timeout
 # ================================================
 
-SESSION_TIMEOUT = 3600  # seconds (1 hour)
+SESSION_TIMEOUT = 3600  # 1 hour (in seconds)
+
 
 def init_session():
-    """Initialize session state variables."""
-    if "user" not in st.session_state:
-        st.session_state["user"] = None
-    if "role" not in st.session_state:
-        st.session_state["role"] = None
-    if "login_time" not in st.session_state:
-        st.session_state["login_time"] = None
-    if "_rerun" not in st.session_state:
-        st.session_state["_rerun"] = False
+    """Initialize session state variables once."""
+    defaults = {
+        "user": None,
+        "role": None,
+        "login_time": None,
+        "expired": False,
+        "authenticated": False,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 
-def login_user(username, role):
-    """Login user and start session."""
+def login_user(username: str, role: str):
+    """Start session for a logged-in user."""
     st.session_state["user"] = username
     st.session_state["role"] = role
     st.session_state["login_time"] = time.time()
-    st.session_state["_rerun"] = True
+    st.session_state["authenticated"] = True
+    st.session_state["expired"] = False
 
 
 def logout_user():
-    """Logout user and clear session."""
-    for key in ["user", "role", "login_time"]:
-        if key in st.session_state:
-            del st.session_state[key]
-    st.session_state["user"] = None
-    st.session_state["role"] = None
-    st.session_state["login_time"] = None
-    st.session_state["_rerun"] = True
-    st.success("👋 Logged out successfully.")
+    """End user session and clear all session variables."""
+    for key in ["user", "role", "login_time", "authenticated", "expired"]:
+        st.session_state[key] = None if key != "expired" else False
+    st.info("👋 Logged out successfully. Please log in again.")
 
 
 def check_timeout():
-    """Automatically logout if session timeout reached."""
-    if st.session_state.get("login_time"):
-        if time.time() - st.session_state["login_time"] > SESSION_TIMEOUT:
-            st.warning("⏰ Session expired. Please log in again.")
+    """Check if the current session has expired."""
+    if st.session_state.get("authenticated") and st.session_state.get("login_time"):
+        elapsed = time.time() - st.session_state["login_time"]
+        if elapsed > SESSION_TIMEOUT:
+            st.session_state["expired"] = True
+            st.session_state["authenticated"] = False
             logout_user()
-
-    # Handle rerun flag safely outside callbacks
-    if st.session_state.get("_rerun"):
-        st.session_state["_rerun"] = False
-        st.experimental_rerun()
+            st.warning("⏰ Session expired due to inactivity.")
