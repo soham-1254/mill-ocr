@@ -121,23 +121,46 @@ Return valid JSON ONLY:
 
 # ------------------ ✅ PDF EXPORT (safe font) ------------------
 def export_pdf(df: pd.DataFrame, header: Dict[str, Any]) -> bytes:
+    """✅ Fully Streamlit-safe PDF export (always returns bytes)."""
+    import io
+    from fpdf import FPDF
+
     pdf = get_pdf_base("Spool Winding Production — OCR Extract", header)
     pdf.set_font("NotoSans", "", 8)
 
-    show_cols = ["Sl_No", "Quality_Mc_Alloc", "Spinning_Frame_No",
-                 "Winding_Frame_No", "Labour_No", "Production_Sum", "Net_Weight", "Remarks"]
+    show_cols = [
+        "Sl_No", "Quality_Mc_Alloc", "Spinning_Frame_No",
+        "Winding_Frame_No", "Labour_No", "Production_Sum", "Net_Weight", "Remarks"
+    ]
     col_w = [10, 28, 24, 24, 20, 26, 22, 60]
 
+    # ---- Table Header ----
     for i, c in enumerate(show_cols):
         pdf.cell(col_w[i], 6, c, border=1, align="C")
     pdf.ln()
 
+    # ---- Table Rows ----
     for _, r in df.iterrows():
         vals = [str(r.get(c, ""))[:20] for c in show_cols]
         for i, v in enumerate(vals):
             pdf.cell(col_w[i], 6, v, border=1)
         pdf.ln()
-    return pdf.output(dest="S").encode("latin-1", errors="ignore")
+
+    # ✅ Write to memory buffer instead of dest="S"
+    buf = io.BytesIO()
+    pdf.output(buf)
+    buf.seek(0)
+
+    pdf_bytes = buf.getvalue()
+
+    # ✅ Guarantee bytes output
+    if isinstance(pdf_bytes, str):
+        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
+    elif not isinstance(pdf_bytes, (bytes, bytearray)):
+        pdf_bytes = bytes(pdf_bytes)
+
+    return pdf_bytes
+
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: Dict[str, Any], df: pd.DataFrame, image_name: str, raw_bytes: bytes):
