@@ -88,9 +88,7 @@ def normalize_rows(rows: list) -> pd.DataFrame:
             row["Difference"] = None
         row["Efficiency"] = to_float(r.get("Efficiency"))
         norm.append(row)
-
-    df = pd.DataFrame(norm, columns=ROW_COLUMNS)
-    return df
+    return pd.DataFrame(norm, columns=ROW_COLUMNS)
 
 # ------------------ GEMINI OCR ------------------
 def call_gemini_for_drawing(image_bytes: bytes, mime_type: str) -> dict:
@@ -136,7 +134,7 @@ Return JSON:
         st.error(f"❌ Gemini API Error: {e}")
         return {"header": {}, "rows": []}
 
-# ------------------ ✅ PDF EXPORT (Centralized Font) ------------------
+# ------------------ ✅ PDF EXPORT (Final Safe Version) ------------------
 def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
     """Cloud-safe PDF export using shared utils."""
     pdf = get_pdf_base("Drawing Meter Reading — OCR Extract", header)
@@ -166,21 +164,18 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
             pdf.cell(w, 6, val, border=1)
         pdf.ln()
 
-    # ✅ FIX: handle None-returning pdf.output() safely
+    # ✅ FIX: Ensure consistent byte output
     out = pdf.output(dest="S")
     if out is None:
         import io
         buf = io.BytesIO()
         pdf.output(buf)
         out = buf.getvalue()
-
-    # 🧩 FINAL FIX: ensure output is always bytes
     if isinstance(out, str):
         out = out.encode("latin-1", errors="ignore")
     elif not isinstance(out, (bytes, bytearray)):
         out = bytes(out)
     return out
-
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
@@ -256,7 +251,6 @@ try:
     with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
         edited.to_excel(writer, index=False, sheet_name="DrawingMeter")
 except Exception:
-    xlsx_buf = io.BytesIO()
     with pd.ExcelWriter(xlsx_buf, engine="openpyxl") as writer:
         edited.to_excel(writer, index=False, sheet_name="DrawingMeter")
 c3.download_button("⬇️ XLSX", data=xlsx_buf.getvalue(),
