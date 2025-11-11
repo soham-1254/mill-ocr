@@ -173,7 +173,14 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
         buf = io.BytesIO()
         pdf.output(buf)
         out = buf.getvalue()
-    return out if isinstance(out, (bytes, bytearray)) else out.encode("latin-1", errors="ignore")
+
+    # 🧩 FINAL FIX: ensure output is always bytes
+    if isinstance(out, str):
+        out = out.encode("latin-1", errors="ignore")
+    elif not isinstance(out, (bytes, bytearray)):
+        out = bytes(out)
+    return out
+
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
