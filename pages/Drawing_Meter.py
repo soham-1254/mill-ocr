@@ -139,18 +139,20 @@ Return JSON:
 
 # ------------------ ✅ PDF EXPORT (Centralized Font) ------------------
 def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """Export the DataFrame as PDF using /tmp/NotoSans"""
-    pdf = get_pdf_base("Drawing Meter Reading - OCR Extract", header)
+    """Cloud-safe PDF export using shared utils."""
+    pdf = get_pdf_base("Drawing Meter Reading — OCR Extract", header)
     pdf.set_font("NotoSans", "", 8)
 
     show_cols = ["Sl_No", "Mc_No", "Efficiency_at_100%", "Opening_Meter_Reading",
-                 "Closing_Meter_Reading", "Difference", "Efficiency", "Worker_Name"]
-    col_w = [10, 20, 25, 25, 25, 25, 30, 35]
+                 "Closing_Meter_Reading", "Efficiency", "Worker_Name"]
+    col_w = [12, 18, 28, 28, 28, 22, 40]
 
-    for i, c in enumerate(show_cols):
-        pdf.cell(col_w[i], 6, c, border=1, align="C")
+    # table header
+    for c, w in zip(show_cols, col_w):
+        pdf.cell(w, 6, c, border=1, align="C")
     pdf.ln()
 
+    # table rows
     for _, r in df.iterrows():
         row = [
             str(r.get("Sl_No") or ""),
@@ -158,15 +160,15 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
             str(r.get("Efficiency_at_100%") or ""),
             str(r.get("Opening_Meter_Reading") or ""),
             str(r.get("Closing_Meter_Reading") or ""),
-            str(r.get("Difference") or ""),
             str(r.get("Efficiency") or ""),
             str(r.get("Worker_Name") or ""),
         ]
-        for i, val in enumerate(row):
-            pdf.cell(col_w[i], 6, val, border=1)
+        for val, w in zip(row, col_w):
+            pdf.cell(w, 6, val, border=1)
         pdf.ln()
 
     return pdf.output(dest="S").encode("latin-1", errors="ignore")
+
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
