@@ -1,0 +1,7 @@
+streamlit
+pandas
+pymongo
+python-dotenv
+google-generativeai
+fpdf
+requests
