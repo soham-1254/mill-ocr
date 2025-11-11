@@ -136,7 +136,10 @@ Return JSON:
 
 # ------------------ ✅ PDF EXPORT (Final Safe Version) ------------------
 def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """Cloud-safe PDF export using shared utils with guaranteed bytes output."""
+    """✅ Fully cloud-safe PDF export (guaranteed bytes output for Streamlit Cloud)."""
+    import io
+    from fpdf import FPDF
+
     pdf = get_pdf_base("Drawing Meter Reading — OCR Extract", header)
     pdf.set_font("NotoSans", "", 8)
 
@@ -164,29 +167,21 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
             pdf.cell(w, 6, val, border=1)
         pdf.ln()
 
-    # 🧩 FINAL GUARANTEED BYTES OUTPUT
-    out = pdf.output(dest="S")
-    import io
-    if out is None:
-        buf = io.BytesIO()
-        pdf.output(buf)
-        out = buf.getvalue()
+    # ✅ Instead of dest="S", write to memory buffer (universal)
+    buf = io.BytesIO()
+    pdf.output(buf)
+    buf.seek(0)
 
-    # ✅ Convert any stray str → bytes
-    if isinstance(out, str):
-        out = out.encode("latin-1", errors="ignore")
+    pdf_bytes = buf.getvalue()
 
-    # ✅ Convert any non-bytes-like object
-    if not isinstance(out, (bytes, bytearray)):
-        try:
-            out = bytes(out)
-        except Exception:
-            # fallback: re-run via memory buffer
-            buf = io.BytesIO()
-            pdf.output(buf)
-            out = buf.getvalue()
+    # ✅ Force guarantee that output is bytes
+    if isinstance(pdf_bytes, str):
+        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
+    elif not isinstance(pdf_bytes, (bytes, bytearray)):
+        pdf_bytes = bytes(pdf_bytes)
 
-    return out
+    return pdf_bytes
+
 
 
 # ------------------ MONGO UPSERT ------------------
