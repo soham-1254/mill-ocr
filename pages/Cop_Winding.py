@@ -175,19 +175,23 @@ def call_gemini_vision_for_cop(image_bytes:bytes,mime_type:str)->Dict[str,any]:
 # ------------------------------------------------------
 # ✅ PDF (Centralized /tmp Font via get_pdf_base)
 # ------------------------------------------------------
-def save_pdf(df:pd.DataFrame, header:Dict[str,Any]) -> bytes:
-    pdf = get_pdf_base("Cop Winding (Weft) — OCR Extract (2-Step Verified)", header)
 
-    pdf.set_font("NotoSans", "", 7)
-    col_w=[8,22,35,16,22,12,14,14,16,18,16,16,16,12,18,16,18,14]
+def save_pdf(df: pd.DataFrame, header: dict):
+    pdf = get_pdf_base("Cop Winding Production — OCR Extract", header)
+    pdf.set_font("NotoSans", "", 8)
 
-    for i, c in enumerate(COP_COLUMNS):
-        pdf.cell(col_w[i], 6, str(c), border=1, align="C")
+    show_cols = df.columns.tolist()
+    col_w = [max(20, 250 // len(show_cols)) for _ in show_cols]
+
+    # Header row
+    for c in show_cols:
+        pdf.cell(col_w[show_cols.index(c)], 6, str(c), border=1, align="C")
     pdf.ln()
 
+    # Data rows
     for _, r in df.iterrows():
-        vals=[str(r.get(c,"") if r.get(c,"") is not None else "")[:22] for c in COP_COLUMNS]
-        for i,v in enumerate(vals): pdf.cell(col_w[i],6,v,border=1)
+        for c in show_cols:
+            pdf.cell(col_w[show_cols.index(c)], 6, str(r[c])[:25], border=1)
         pdf.ln()
 
     return pdf.output(dest="S").encode("latin-1", errors="ignore")
