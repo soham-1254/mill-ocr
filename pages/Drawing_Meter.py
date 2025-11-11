@@ -1,6 +1,6 @@
 # ======================================================
 # pages/Drawing_Meter_Reading.py — Drawing Meter OCR Page
-# (Gemini 2.5 Flash + Mongo + PDF with /tmp Font)
+# (Gemini 2.5 Flash + Mongo + PDF with /tmp Font via utils.pdf_utils)
 # ======================================================
 import os, io, json, re, datetime as dt
 import pandas as pd
@@ -8,7 +8,7 @@ import streamlit as st
 from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 import google.generativeai as genai
-from utils.pdf_utils import get_pdf_base   # ✅ unified PDF font handler
+from utils.pdf_utils import get_pdf_base   # ✅ centralized, cloud-safe PDF base
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="Drawing Meter Reading OCR", layout="wide")
@@ -39,7 +39,6 @@ ROW_COLUMNS = [
     "Efficiency",
     "Worker_Name"
 ]
-
 HEADER_FIELDS = ["Date", "Shift", "Supervisor_Signature"]
 
 # ------------------ HELPERS ------------------
@@ -167,8 +166,14 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
             pdf.cell(w, 6, val, border=1)
         pdf.ln()
 
-    return pdf.output(dest="S").encode("latin-1", errors="ignore")
-
+    # ✅ FIX: handle None-returning pdf.output() safely
+    out = pdf.output(dest="S")
+    if out is None:
+        import io
+        buf = io.BytesIO()
+        pdf.output(buf)
+        out = buf.getvalue()
+    return out if isinstance(out, (bytes, bytearray)) else out.encode("latin-1", errors="ignore")
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
@@ -240,8 +245,13 @@ json_bytes = edited.to_json(orient="records", indent=2).encode()
 c2.download_button("⬇️ JSON", data=json_bytes, file_name="drawing_meter_data.json", mime="application/json")
 
 xlsx_buf = io.BytesIO()
-with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
-    edited.to_excel(writer, index=False, sheet_name="DrawingMeter")
+try:
+    with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
+        edited.to_excel(writer, index=False, sheet_name="DrawingMeter")
+except Exception:
+    xlsx_buf = io.BytesIO()
+    with pd.ExcelWriter(xlsx_buf, engine="openpyxl") as writer:
+        edited.to_excel(writer, index=False, sheet_name="DrawingMeter")
 c3.download_button("⬇️ XLSX", data=xlsx_buf.getvalue(),
                    file_name="drawing_meter_data.xlsx",
                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
