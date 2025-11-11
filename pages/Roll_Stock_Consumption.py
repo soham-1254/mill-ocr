@@ -11,6 +11,8 @@ from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 import google.generativeai as genai
 from fpdf import FPDF
+from utils.pdf_utils import ensure_font_available, get_pdf_base
+
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="Roll Stock Consumption OCR", layout="wide")

@@ -1,15 +1,14 @@
-import os
-import io
-import json
-import datetime as dt
+# ======================================================
+# pages/Roll_Stock_Carding.py — Roll Stock Carding OCR Page
+# (Gemini 2.5 Flash + Mongo + /tmp Font-safe PDF)
+# ======================================================
+import os, io, json, re, datetime as dt
 import pandas as pd
 import streamlit as st
 from pymongo import MongoClient, ReturnDocument
-from fpdf import FPDF
 from dotenv import load_dotenv
 import google.generativeai as genai
-import re
-
+from utils.pdf_utils import get_pdf_base   # ✅ centralized /tmp font base
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="Roll Stock Carding OCR", layout="wide")
@@ -33,7 +32,6 @@ else:
 ROW_COLUMNS = [
     "Sl_No", "Qty", "6AM", "11AM", "2PM", "5PM", "10PM", "Remarks", "K_Cutting", "L_Cutting"
 ]
-
 HEADER_FIELDS = ["Date", "Shift", "Supervisor_Signature"]
 
 # ------------------ HELPERS ------------------
@@ -57,14 +55,6 @@ def to_int(x):
     except Exception:
         return None
 
-def to_float(x):
-    try:
-        if x in [None, "", "null"]:
-            return None
-        return float(str(x).strip())
-    except Exception:
-        return None
-
 def normalize_rows(rows: list) -> pd.DataFrame:
     """Normalize rows data and compute necessary fields."""
     norm = []
@@ -78,14 +68,13 @@ def normalize_rows(rows: list) -> pd.DataFrame:
             "5PM": to_int(r.get("5PM")),
             "10PM": to_int(r.get("10PM")),
             "Remarks": r.get("Remarks"),
-            "K_Cutting": r.get("K_Cutting", ""),  # Extracted separately
-            "L_Cutting": r.get("L_Cutting", ""),  # Extracted separately
+            "K_Cutting": r.get("K_Cutting", ""),
+            "L_Cutting": r.get("L_Cutting", ""),
         }
         norm.append(row)
 
     df = pd.DataFrame(norm, columns=ROW_COLUMNS)
     return df
-
 
 # ------------------ GEMINI OCR ------------------
 def call_gemini_for_roll_stock(image_bytes: bytes, mime_type: str) -> dict:
@@ -94,41 +83,36 @@ def call_gemini_for_roll_stock(image_bytes: bytes, mime_type: str) -> dict:
         st.error("GOOGLE_API_KEY missing")
         return {"header": {}, "rows": []}
 
-    prompt = f"""
-    You are extracting rows from a **Roll Stock Carding** register page.
+    prompt = """
+You are extracting rows from a Roll Stock Carding register page.
 
-    Extract the following fields:
-    Header: Date, Shift, Supervisor Signature, and other metadata if available.
-
-    Extract rows as follows:
-    Sl_No, Qty, 6AM, 11AM, 2PM, 5PM, 10PM, Remarks
-
-    K_Cutting and L_Cutting are independent and should be extracted separately from the regular columns.
-
-    Return valid JSON as follows:
-    {{
-
-        "header": {{
-            "Date": "DD/MM/YY or DD/MM/YYYY",
-            "Shift": "A/B/C",
-            "Supervisor_Signature": "Name"
-        }},
-        "rows": [
-            {{
-                "Sl_No": int,
-                "Qty": str,
-                "6AM": int,
-                "11AM": int,
-                "2PM": int,
-                "5PM": int,
-                "10PM": int,
-                "Remarks": str,
-                "K_Cutting": str, 
-                "L_Cutting": str
-            }}
-        ]
-    }}
-    """
+Return STRICT JSON ONLY:
+{
+  "header": {
+    "Date": "DD/MM/YY or DD/MM/YYYY",
+    "Shift": "A/B/C",
+    "Supervisor_Signature": "Name"
+  },
+  "rows": [
+    {
+      "Sl_No": int,
+      "Qty": str,
+      "6AM": int,
+      "11AM": int,
+      "2PM": int,
+      "5PM": int,
+      "10PM": int,
+      "Remarks": str,
+      "K_Cutting": str,
+      "L_Cutting": str
+    }
+  ]
+}
+Rules:
+- Read each column exactly as printed.
+- “K_Cutting” and “L_Cutting” are separate fields often at bottom/right of the sheet.
+- Return only JSON (no text explanations).
+"""
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
         cfg = {"response_mime_type": "application/json"}
@@ -141,31 +125,15 @@ def call_gemini_for_roll_stock(image_bytes: bytes, mime_type: str) -> dict:
         st.error(f"❌ Gemini API Error: {e}")
         return {"header": {}, "rows": []}
 
-
-# ------------------ PDF EXPORT ------------------
+# ------------------ ✅ PDF EXPORT (Unified Font via /tmp) ------------------
 def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """Export the DataFrame as a PDF"""
-    pdf = FPDF()
-    pdf.add_page()
-    font_path = os.path.join(os.path.dirname(__file__), "..", "NotoSans-Regular.ttf")
-    if not os.path.exists(font_path):
-        url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf"
-        r = requests.get(url)
-        open(font_path, "wb").write(r.content)
-    pdf.add_font("NotoSans", "", font_path, uni=True)
-    pdf.set_font("NotoSans", "", 14)
-
-    def safe(t): return re.sub(r"[—–−]", "-", str(t or ""))
-
-    pdf.cell(0, 8, safe("Roll Stock Carding - OCR Extract"), ln=1)
-    pdf.set_font("NotoSans", "", 11)
-    pdf.cell(0, 7, f"Date: {safe(header.get('Date'))}   Shift: {safe(header.get('Shift'))}   Supervisor: {safe(header.get('Supervisor_Signature'))}", ln=1)
-    pdf.ln(2)
+    """Export DataFrame as PDF using NotoSans font in /tmp"""
+    pdf = get_pdf_base("Roll Stock Carding - OCR Extract", header)
+    pdf.set_font("NotoSans", "", 8)
 
     show_cols = ["Sl_No", "Qty", "6AM", "11AM", "2PM", "5PM", "10PM", "Remarks", "K_Cutting", "L_Cutting"]
-    col_w = [10, 20, 25, 25, 25, 30, 35, 40, 30, 30]  # Make sure this length matches the show_cols length
+    col_w = [10, 20, 20, 20, 20, 20, 20, 35, 25, 25]
 
-    pdf.set_font("NotoSans", "", 8)
     for i, c in enumerate(show_cols):
         pdf.cell(col_w[i], 6, c, border=1, align="C")
     pdf.ln()
@@ -189,10 +157,8 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
 
     return pdf.output(dest="S").encode("latin-1", errors="ignore")
 
-
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
-    """Upsert data to MongoDB"""
     doc = {
         "register_type": "Roll Stock Carding",
         "header": header,
@@ -203,7 +169,6 @@ def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes
     }
     key = {"original_image_name": img_name, "header.Date": header.get("Date")}
     return coll.find_one_and_update(key, {"$set": doc}, upsert=True, return_document=ReturnDocument.AFTER)
-
 
 # ------------------ STREAMLIT UI ------------------
 st.title("🧵 Roll Stock Carding OCR")
@@ -237,46 +202,44 @@ rows = data.get("rows", []) or []
 df = normalize_rows(rows)
 
 # ------------------ DISPLAYING AND EXPORTING ------------------
-st.markdown("**Step 2: Preview & Edit**")
-
-# Show data preview
+st.markdown("**Step 2: Review & Edit**")
 edited = st.data_editor(df, use_container_width=True, num_rows="dynamic")
 
 # Step 3: Header
-date_val = st.text_input("Date (DD/MM/YY)", value=header.get("Date") or "")
-shift_val = st.text_input("Shift", value=header.get("Shift") or "")
-supervisor_val = st.text_input("Supervisor Signature", value=header.get("Supervisor_Signature") or "")
-header_edit = {
-    "Date": date_val,
-    "Shift": shift_val,
-    "Supervisor_Signature": supervisor_val,
-}
+c1, c2, c3 = st.columns(3)
+date_val = c1.text_input("Date", value=header.get("Date") or "")
+shift_val = c2.text_input("Shift", value=header.get("Shift") or "")
+supervisor_val = c3.text_input("Supervisor Signature", value=header.get("Supervisor_Signature") or "")
+header_edit = {"Date": date_val, "Shift": shift_val, "Supervisor_Signature": supervisor_val}
 
 # Step 4: Save and Export
-if st.button("💾 Save to MongoDB"):
+if st.button("💾 Save to MongoDB", type="primary"):
     saved = upsert_mongo(header_edit, edited, img_name, img_bytes)
     st.success("✅ Saved to MongoDB")
     st.json({"_id": str(saved.get("_id")), "Date": header_edit["Date"]})
 
-cA, cB, cC, cD = st.columns(4)
+c1, c2, c3, c4 = st.columns(4)
 
 # CSV
 csv_bytes = edited.to_csv(index=False).encode()
-cB.download_button("⬇️ CSV", data=csv_bytes, file_name="roll_stock_data.csv", mime="text/csv")
+c1.download_button("⬇️ CSV", data=csv_bytes, file_name="roll_stock_data.csv", mime="text/csv")
 
 # JSON
 json_bytes = edited.to_json(orient="records", indent=2).encode()
-cC.download_button("⬇️ JSON", data=json_bytes, file_name="roll_stock_data.json", mime="application/json")
+c2.download_button("⬇️ JSON", data=json_bytes, file_name="roll_stock_data.json", mime="application/json")
 
 # XLSX
 xlsx_buf = io.BytesIO()
 with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
     edited.to_excel(writer, index=False, sheet_name="RollStock")
-cD.download_button("⬇️ XLSX", data=xlsx_buf.getvalue(), file_name="roll_stock_data.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+c3.download_button("⬇️ XLSX", data=xlsx_buf.getvalue(),
+                   file_name="roll_stock_data.xlsx",
+                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # PDF
 pdf_bytes = export_pdf(edited, header_edit)
-st.download_button("⬇️ PDF", data=pdf_bytes, file_name="roll_stock_data.pdf", mime="application/pdf")
+c4.download_button("⬇️ PDF", data=pdf_bytes,
+                   file_name="roll_stock_data.pdf", mime="application/pdf")
 
 st.markdown("---")
-st.caption("Tip: You can refine values in the grid before saving or exporting.")
+st.caption("💡 Tip: You can refine values before saving or exporting.")
