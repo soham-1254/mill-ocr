@@ -136,7 +136,7 @@ Return JSON:
 
 # ------------------ ✅ PDF EXPORT (Final Safe Version) ------------------
 def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """Cloud-safe PDF export using shared utils."""
+    """Cloud-safe PDF export using shared utils with guaranteed bytes output."""
     pdf = get_pdf_base("Drawing Meter Reading — OCR Extract", header)
     pdf.set_font("NotoSans", "", 8)
 
@@ -144,12 +144,12 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
                  "Closing_Meter_Reading", "Efficiency", "Worker_Name"]
     col_w = [12, 18, 28, 28, 28, 22, 40]
 
-    # table header
+    # header
     for c, w in zip(show_cols, col_w):
         pdf.cell(w, 6, c, border=1, align="C")
     pdf.ln()
 
-    # table rows
+    # rows
     for _, r in df.iterrows():
         row = [
             str(r.get("Sl_No") or ""),
@@ -164,18 +164,30 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
             pdf.cell(w, 6, val, border=1)
         pdf.ln()
 
-    # ✅ FIX: Ensure consistent byte output
+    # 🧩 FINAL GUARANTEED BYTES OUTPUT
     out = pdf.output(dest="S")
+    import io
     if out is None:
-        import io
         buf = io.BytesIO()
         pdf.output(buf)
         out = buf.getvalue()
+
+    # ✅ Convert any stray str → bytes
     if isinstance(out, str):
         out = out.encode("latin-1", errors="ignore")
-    elif not isinstance(out, (bytes, bytearray)):
-        out = bytes(out)
+
+    # ✅ Convert any non-bytes-like object
+    if not isinstance(out, (bytes, bytearray)):
+        try:
+            out = bytes(out)
+        except Exception:
+            # fallback: re-run via memory buffer
+            buf = io.BytesIO()
+            pdf.output(buf)
+            out = buf.getvalue()
+
     return out
+
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
