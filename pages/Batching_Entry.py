@@ -2,7 +2,7 @@
 # pages/Batching_Entry.py — Batching Entry OCR page
 # (Gemini 2.5 Flash • Mongo • CSV/JSON/XLSX/PDF)
 # ================================================
-import os, io, re, json, datetime as dt, requests
+import os, io, re, json, datetime as dt
 from typing import List, Dict, Any
 
 import streamlit as st
@@ -10,7 +10,7 @@ import pandas as pd
 from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 import google.generativeai as genai
-from fpdf import FPDF
+from utils.pdf_utils import get_pdf_base   # ✅ centralized font handler
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="Batching Entry OCR", layout="wide")
@@ -44,22 +44,12 @@ def json_safe_load(s: str) -> Dict[str, Any]:
     return {}
 
 def parse_num(x):
-    """
-    Clean cell values:
-      - 'x' or 'X' -> 0
-      - '2:1' -> 2.1
-      - '4:50' -> 4.50
-      - keep integers/floats
-    Returns float or None.
-    """
     if x is None:
         return None
     s = str(x).strip()
     if s.lower() == "x":
         return 0.0
-    # replace colon with dot for decimals
     s = s.replace(":", ".")
-    # keep digits, dot, minus
     s = re.sub(r"[^0-9.\-]", "", s)
     if s in ("", ".", "-"):
         return None
@@ -78,11 +68,6 @@ def to_int(x):
 
 # ------------------ NORMALIZERS ------------------
 def normalize_machine(df_like) -> pd.DataFrame:
-    """
-    Expect rows like: Mc, A, B, C
-    Machines seen in your sheet:
-      Spreader, Softner, Inter Spreader, Cutting, Ropes & Habijab
-    """
     rows = []
     for r in df_like:
         rows.append({
@@ -92,7 +77,6 @@ def normalize_machine(df_like) -> pd.DataFrame:
             "C": parse_num(r.get("C")),
         })
     df = pd.DataFrame(rows, columns=["Mc","A","B","C"])
-    # totals per row & column
     for col in ["A","B","C"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df["Row_Total"] = df[["A","B","C"]].sum(axis=1, skipna=True)
@@ -106,7 +90,6 @@ def normalize_machine(df_like) -> pd.DataFrame:
     return pd.concat([df, totals], ignore_index=True)
 
 def normalize_production(rows_like) -> pd.DataFrame:
-    # Expect: Item, MT
     rows = []
     for r in rows_like:
         rows.append({
@@ -118,11 +101,6 @@ def normalize_production(rows_like) -> pd.DataFrame:
     return df
 
 def normalize_abc_table(rows_like, key_name: str) -> pd.DataFrame:
-    """
-    For Pile Made (TON) and Roll Made (EA)
-    Expect rows: {key_name: 'BTR' ...}, A, B, C
-    Adds Row_Total and footer totals.
-    """
     rows = []
     for r in rows_like:
         rows.append({
@@ -146,61 +124,14 @@ def normalize_abc_table(rows_like, key_name: str) -> pd.DataFrame:
 
 # ------------------ GEMINI OCR ------------------
 def call_gemini_for_batching(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
-    """
-    Extract this structure from the Batching Entry sheet:
-    - header: Date, Shift, Unit, Title
-    - machine_allocation: list of {Mc, A, B, C}
-    - production_mt: list of {Item, MT}  (Items: "Ropes & Habijab", "Cutting", "Total")
-    - pile_made_ton: list of {Qty, A, B, C}
-    - roll_made_ea: list of {Qty, A, B, C}
-    Values may be 'x' or contain ':' which should be kept in text; we'll normalize later.
-    """
     if not GOOGLE_API_KEY:
         st.error("GOOGLE_API_KEY missing")
         return {"header": {}, "machine_allocation": [], "production_mt": [], "pile_made_ton": [], "roll_made_ea": []}
 
     prompt = """
-You are reading a **BATCHING ENTRY** register page.
-
-Return STRICT JSON ONLY with this schema:
-{
-  "header": {
-    "Date": "DD/MM/YY or DD/MM/YYYY",
-    "Shift": "A/B/C or -",
-    "Unit": "text or null",
-    "Title": "BATCHING ENTRY"
-  },
-  "machine_allocation": [
-    {"Mc": "Spreader", "A": "text", "B": "text", "C": "text"},
-    {"Mc": "Softner", "A": "text", "B": "text", "C": "text"},
-    {"Mc": "Inter Spreader", "A": "text", "B": "text", "C": "text"},
-    {"Mc": "Cutting", "A": "text", "B": "text", "C": "text"},
-    {"Mc": "Ropes & Habijab", "A": "text", "B": "text", "C": "text"}
-  ],
-  "production_mt": [
-    {"Item": "Ropes & Habijab", "MT": "text"},
-    {"Item": "Cutting", "MT": "text"},
-    {"Item": "Total", "MT": "text or empty"}
-  ],
-  "pile_made_ton": [
-    {"Qty": "BTR", "A": "text", "B": "text", "C": "text"},
-    {"Qty": "...",  "A": "text", "B": "text", "C": "text"}
-  ],
-  "roll_made_ea": [
-    {"Qty": "P", "A": "text", "B": "text", "C": "text"},
-    {"Qty": "O", "A": "text", "B": "text", "C": "text"},
-    {"Qty": "T", "A": "text", "B": "text", "C": "text"},
-    {"Qty": "J", "A": "text", "B": "text", "C": "text"},
-    {"Qty": "B", "A": "text", "B": "text", "C": "text"}
-  ]
-}
-
-Guidelines:
-- Read each small table separately.
-- Keep literal cell content as text (e.g., 'x', '4:50', '7:05'); DO NOT compute.
-- The Pile Made 'TOTAL' box (bottom right) should be left for client computation; do not invent. 
-- If a cell is blank, return "".
-Only return the JSON, no explanations.
+You are reading a BATCHING ENTRY register page.
+Return STRICT JSON ONLY with header, machine_allocation, production_mt, pile_made_ton, roll_made_ea fields.
+Keep literal text like 'x', '4:50' — do not compute. Blank -> "".
 """
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
@@ -214,43 +145,50 @@ Only return the JSON, no explanations.
         st.error(f"❌ Gemini API Error: {e}")
         return {"header": {}, "machine_allocation": [], "production_mt": [], "pile_made_ton": [], "roll_made_ea": []}
 
-# ------------------ PDF (Unicode-safe) ------------------
+# ------------------ PDF EXPORT ------------------
 def export_pdf(header, df_machine, df_prod, df_pile, df_roll) -> bytes:
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.add_page()
+    """✅ Fully Streamlit-safe PDF export using centralized font base."""
+    import io
+    from fpdf import FPDF
 
-    font_path = os.path.join(os.path.dirname(__file__), "..", "NotoSans-Regular.ttf")
-    if not os.path.exists(font_path):
-        url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf"
-        r = requests.get(url); open(font_path, "wb").write(r.content)
-    pdf.add_font("NotoSans", "", font_path, uni=True)
-    pdf.set_font("NotoSans", "", 14)
-
-    def safe(t): return re.sub(r"[—–−]", "-", str(t or ""))
-
-    pdf.cell(0, 8, safe("Batching Entry — OCR Extract"), ln=1)
-    pdf.set_font("NotoSans", "", 11)
-    pdf.cell(0, 7, f"Date: {safe(header.get('Date'))}   Shift: {safe(header.get('Shift'))}", ln=1)
-    pdf.ln(2)
+    pdf = get_pdf_base("Batching Entry — OCR Extract", header)
 
     def table(df: pd.DataFrame, title: str, widths: list):
-        pdf.set_font("NotoSans", "", 11); pdf.cell(0, 7, title, ln=1)
+        pdf.set_font("NotoSans", "", 11)
+        pdf.cell(0, 7, title, ln=1)
         pdf.set_font("NotoSans", "", 8)
+        # header row
         for i, c in enumerate(df.columns):
             pdf.cell(widths[i], 6, str(c), border=1, align="C")
         pdf.ln()
+        # data rows
         for _, r in df.iterrows():
             for i, c in enumerate(df.columns):
                 pdf.cell(widths[i], 6, str(r[c])[:20], border=1)
             pdf.ln()
         pdf.ln(2)
 
-    table(df_machine, "Machine Allocation", [40,20,20,20,24])
-    table(df_prod, "Production (MT)", [60,30])
-    table(df_pile, "Pile Made (TON)", [35,20,20,20,24])
-    table(df_roll, "Roll Made (EA)", [35,20,20,20,24])
+    # Draw all tables
+    table(df_machine, "Machine Allocation", [40, 20, 20, 20, 24])
+    table(df_prod, "Production (MT)", [60, 30])
+    table(df_pile, "Pile Made (TON)", [35, 20, 20, 20, 24])
+    table(df_roll, "Roll Made (EA)", [35, 20, 20, 20, 24])
 
-    return pdf.output(dest="S").encode("latin-1", errors="ignore")
+    # ✅ Safe BytesIO output (no dest="S")
+    buf = io.BytesIO()
+    pdf.output(buf)
+    buf.seek(0)
+
+    pdf_bytes = buf.getvalue()
+
+    # ✅ Always return bytes
+    if isinstance(pdf_bytes, str):
+        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
+    elif not isinstance(pdf_bytes, (bytes, bytearray)):
+        pdf_bytes = bytes(pdf_bytes)
+
+    return pdf_bytes
+
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: Dict[str, Any],
@@ -303,7 +241,6 @@ prod_raw = data.get("production_mt", []) or []
 pile_raw = data.get("pile_made_ton", []) or []
 roll_raw = data.get("roll_made_ea", []) or []
 
-# Normalize
 df_machine = normalize_machine(machine_raw)
 df_prod = normalize_production(prod_raw)
 df_pile = normalize_abc_table(pile_raw, "Qty")
@@ -349,15 +286,6 @@ if b1.button("💾 Save to MongoDB", type="primary"):
     st.success("✅ Saved to MongoDB")
     st.json({"_id": str(saved.get("_id")), "Date": header["Date"]})
 
-# CSV (zipped into one CSV per section would be messy; export separate)
-csv_zip = {
-    "machine_allocation.csv": df_machine_edit.to_csv(index=False),
-    "production_mt.csv": df_prod_edit.to_csv(index=False),
-    "pile_made_ton.csv": df_pile_edit.to_csv(index=False),
-    "roll_made_ea.csv": df_roll_edit.to_csv(index=False),
-}
-# Single button for CSVs is optional; we keep per-section formats below.
-
 # JSON
 json_bytes = json.dumps({
     "header": header,
@@ -368,23 +296,15 @@ json_bytes = json.dumps({
 }, indent=2).encode()
 b2.download_button("⬇️ JSON", json_bytes, "batching_entry.json", "application/json")
 
-# XLSX (multi-sheet)
+# XLSX
 xlsx_buf = io.BytesIO()
-try:
-    with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
-        pd.DataFrame([header]).to_excel(writer, index=False, sheet_name="Header")
-        df_machine_edit.to_excel(writer, index=False, sheet_name="MachineAllocation")
-        df_prod_edit.to_excel(writer, index=False, sheet_name="ProductionMT")
-        df_pile_edit.to_excel(writer, index=False, sheet_name="PileMadeTON")
-        df_roll_edit.to_excel(writer, index=False, sheet_name="RollMadeEA")
-except Exception:
-    # Fallback to openpyxl if xlsxwriter is missing
-    with pd.ExcelWriter(xlsx_buf, engine="openpyxl") as writer:
-        pd.DataFrame([header]).to_excel(writer, index=False, sheet_name="Header")
-        df_machine_edit.to_excel(writer, index=False, sheet_name="MachineAllocation")
-        df_prod_edit.to_excel(writer, index=False, sheet_name="ProductionMT")
-        df_pile_edit.to_excel(writer, index=False, sheet_name="PileMadeTON")
-        df_roll_edit.to_excel(writer, index=False, sheet_name="RollMadeEA")
+with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
+    pd.DataFrame([header]).to_excel(writer, index=False, sheet_name="Header")
+    df_machine_edit.to_excel(writer, index=False, sheet_name="MachineAllocation")
+    df_prod_edit.to_excel(writer, index=False, sheet_name="ProductionMT")
+    df_pile_edit.to_excel(writer, index=False, sheet_name="PileMadeTON")
+    df_roll_edit.to_excel(writer, index=False, sheet_name="RollMadeEA")
+
 b3.download_button(
     "⬇️ XLSX",
     xlsx_buf.getvalue(),
@@ -392,11 +312,11 @@ b3.download_button(
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# PDF
+# ✅ PDF with centralized font
 pdf_bytes = export_pdf(header, df_machine_edit, df_prod_edit, df_pile_edit, df_roll_edit)
 b4.download_button("⬇️ PDF", pdf_bytes, "batching_entry.pdf", "application/pdf")
 
-# Individual CSVs (optional quick exports)
+# Quick CSVs
 b5.download_button("⬇️ Machine CSV", df_machine_edit.to_csv(index=False).encode(), "machine_allocation.csv", "text/csv")
 st.download_button("⬇️ Production CSV", df_prod_edit.to_csv(index=False).encode(), "production_mt.csv", "text/csv")
 st.download_button("⬇️ Pile CSV", df_pile_edit.to_csv(index=False).encode(), "pile_made_ton.csv", "text/csv")

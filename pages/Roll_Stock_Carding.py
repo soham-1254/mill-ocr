@@ -127,17 +127,22 @@ Rules:
 
 # ------------------ ✅ PDF EXPORT (Unified Font via /tmp) ------------------
 def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """Export DataFrame as PDF using NotoSans font in /tmp"""
-    pdf = get_pdf_base("Roll Stock Carding - OCR Extract", header)
+    """✅ Fully Streamlit-safe PDF export (always returns bytes)."""
+    import io
+    from fpdf import FPDF
+
+    pdf = get_pdf_base("Roll Stock Carding — OCR Extract", header)
     pdf.set_font("NotoSans", "", 8)
 
     show_cols = ["Sl_No", "Qty", "6AM", "11AM", "2PM", "5PM", "10PM", "Remarks", "K_Cutting", "L_Cutting"]
     col_w = [10, 20, 20, 20, 20, 20, 20, 35, 25, 25]
 
+    # ---- Table Header ----
     for i, c in enumerate(show_cols):
         pdf.cell(col_w[i], 6, c, border=1, align="C")
     pdf.ln()
 
+    # ---- Table Rows ----
     for _, r in df.iterrows():
         row = [
             str(r.get("Sl_No") or ""),
@@ -155,7 +160,21 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
             pdf.cell(col_w[i], 6, val, border=1)
         pdf.ln()
 
-    return pdf.output(dest="S").encode("latin-1", errors="ignore")
+    # ✅ Safe memory buffer output (instead of dest="S")
+    buf = io.BytesIO()
+    pdf.output(buf)
+    buf.seek(0)
+
+    pdf_bytes = buf.getvalue()
+
+    # ✅ Guarantee correct binary type
+    if isinstance(pdf_bytes, str):
+        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
+    elif not isinstance(pdf_bytes, (bytes, bytearray)):
+        pdf_bytes = bytes(pdf_bytes)
+
+    return pdf_bytes
+
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
