@@ -366,6 +366,7 @@ with colL:
                 st.json({"_id": str(s.get("_id")), "Date": date})
 
             # ---------------- EXPORTS ----------------
+                      # ---------------- EXPORTS ----------------
             c1, c2, c3 = st.columns(3)
 
             csv_bytes = df_final.to_csv(index=False).encode()
@@ -373,6 +374,21 @@ with colL:
 
             json_bytes = df_final.to_json(orient="records", indent=2).encode()
             c2.download_button("⬇️ JSON", json_bytes, "cop_winding_clean.json", "application/json")
+
+            # ✅ Added XLSX Export
+            xlsx_buf = io.BytesIO()
+            with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
+                df_final.to_excel(writer, index=False, sheet_name="CopWindingData")
+
+            c3.download_button(
+                "⬇️ XLSX",
+                data=xlsx_buf.getvalue(),
+                file_name="cop_winding_clean.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            st.caption("💡 Note: Only the selected key columns are saved/exported. Extra verification fields remain for UI review only.")
+
 
 
             st.caption("💡 Note: Only the selected key columns are saved/exported. Extra verification fields remain for UI review only.")
