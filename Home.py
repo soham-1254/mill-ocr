@@ -119,13 +119,6 @@ def login_page():
 
     username = st.text_input("👤 Username", placeholder="Enter your username")
 
-    # Show/Hide password toggle
-    show_pass = st.checkbox("👁️ Show password", value=False)
-    password = st.text_input(
-        "🔑 Password",
-        placeholder="Enter your password",
-        type="default" if show_pass else "password"
-    )
 
     # Forgot password link
     st.markdown(
