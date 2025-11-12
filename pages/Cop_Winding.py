@@ -275,35 +275,6 @@ Return **pure JSON** only:
 # ------------------------------------------------------
 # PDF (Unicode Noto Sans)
 # ------------------------------------------------------
-def save_pdf(df:pd.DataFrame,header:Dict[str,Any])->bytes:
-    pdf=FPDF(orientation="L",unit="mm",format="A4")
-    pdf.add_page()
-    font_path=os.path.join(os.path.dirname(__file__),"NotoSans-Regular.ttf")
-    if not os.path.exists(font_path):
-        url="https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf"
-        r=requests.get(url);open(font_path,"wb").write(r.content)
-    pdf.add_font("NotoSans","",font_path,uni=True)
-    pdf.set_font("NotoSans","",14)
-    def safe(t):return re.sub(r"[—–−]","-",str(t or ""))
-    pdf.cell(0,8,safe("Cop Winding (Weft) - OCR Extract (2-Step Verified)"),ln=1)
-    pdf.set_font("NotoSans","",11)
-    rn=safe(header.get("Register_Name")or"S/Weft Wind")
-    sh=safe(header.get("Shift")or"-")
-    dtv=safe(header.get("Date")or"-")
-    pdf.cell(0,7,f"Register:{rn}   Shift:{sh}   Date:{dtv}",ln=1)
-    pdf.ln(2)
-    pdf.set_font("NotoSans","",7)
-
-    # Narrower columns to fit the extra verification fields
-    col_w=[8,22,35,16,22,12,14,14,16,18,16,16,16,12,18,16,18,14]
-    for i,c in enumerate(COP_COLUMNS): pdf.cell(col_w[i],6,str(c),border=1,align="C")
-    pdf.ln()
-    for _,r in df.iterrows():
-        vals=[str(r.get(c,"") if r.get(c,"") is not None else "")[:22] for c in COP_COLUMNS]
-        for i,v in enumerate(vals): pdf.cell(col_w[i],6,v,border=1)
-        pdf.ln()
-    return pdf.output(dest="S").encode("latin-1",errors="ignore")
-
 # ------------------------------------------------------
 # MONGO SAVE
 # ------------------------------------------------------
@@ -403,8 +374,6 @@ with colL:
             json_bytes = df_final.to_json(orient="records", indent=2).encode()
             c2.download_button("⬇️ JSON", json_bytes, "cop_winding_clean.json", "application/json")
 
-            pdf_bytes = save_pdf(df_final, header_edit)
-            c3.download_button("⬇️ PDF", pdf_bytes, "cop_winding_clean.pdf", "application/pdf")
 
             st.caption("💡 Note: Only the selected key columns are saved/exported. Extra verification fields remain for UI review only.")
 
