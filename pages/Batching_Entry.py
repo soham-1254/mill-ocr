@@ -102,16 +102,24 @@ def normalize_production(rows_like) -> pd.DataFrame:
 def normalize_abc_table(rows_like, key_name: str) -> pd.DataFrame:
     rows = []
     for r in rows_like:
+        if not isinstance(r, dict):  # ✅ Skip invalid entries
+            continue
         rows.append({
-            key_name: r.get(key_name),
+            key_name: r.get(key_name) or "",
             "A": parse_num(r.get("A")),
             "B": parse_num(r.get("B")),
             "C": parse_num(r.get("C")),
         })
-    df = pd.DataFrame(rows, columns=[key_name,"A","B","C"])
-    for col in ["A","B","C"]:
+
+    if not rows:  # ✅ In case OCR returned nothing useful
+        return pd.DataFrame(columns=[key_name, "A", "B", "C", "Row_Total"])
+
+    df = pd.DataFrame(rows, columns=[key_name, "A", "B", "C"])
+    for col in ["A", "B", "C"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
-    df["Row_Total"] = df[["A","B","C"]].sum(axis=1, skipna=True)
+
+    df["Row_Total"] = df[["A", "B", "C"]].sum(axis=1, skipna=True)
+
     totals = pd.DataFrame([{
         key_name: "TOTAL",
         "A": df["A"].sum(skipna=True),
@@ -119,7 +127,9 @@ def normalize_abc_table(rows_like, key_name: str) -> pd.DataFrame:
         "C": df["C"].sum(skipna=True),
         "Row_Total": df["Row_Total"].sum(skipna=True),
     }])
+
     return pd.concat([df, totals], ignore_index=True)
+
 
 # ------------------ GEMINI OCR ------------------
 def call_gemini_for_batching(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
