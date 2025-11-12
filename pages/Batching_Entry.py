@@ -1,6 +1,6 @@
 # ================================================
 # pages/Batching_Entry.py — Batching Entry OCR page
-# (Gemini 2.5 Flash • Mongo • CSV/JSON/XLSX/PDF)
+# (Gemini 2.5 Flash • Mongo • CSV/JSON/XLSX)
 # ================================================
 import os, io, re, json, datetime as dt
 from typing import List, Dict, Any
@@ -10,7 +10,6 @@ import pandas as pd
 from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 import google.generativeai as genai
-from utils.pdf_utils import get_pdf_base   # ✅ centralized font handler
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="Batching Entry OCR", layout="wide")
@@ -145,51 +144,6 @@ Keep literal text like 'x', '4:50' — do not compute. Blank -> "".
         st.error(f"❌ Gemini API Error: {e}")
         return {"header": {}, "machine_allocation": [], "production_mt": [], "pile_made_ton": [], "roll_made_ea": []}
 
-# ------------------ PDF EXPORT ------------------
-def export_pdf(header, df_machine, df_prod, df_pile, df_roll) -> bytes:
-    """✅ Fully Streamlit-safe PDF export using centralized font base."""
-    import io
-    from fpdf import FPDF
-
-    pdf = get_pdf_base("Batching Entry — OCR Extract", header)
-
-    def table(df: pd.DataFrame, title: str, widths: list):
-        pdf.set_font("NotoSans", "", 11)
-        pdf.cell(0, 7, title, ln=1)
-        pdf.set_font("NotoSans", "", 8)
-        # header row
-        for i, c in enumerate(df.columns):
-            pdf.cell(widths[i], 6, str(c), border=1, align="C")
-        pdf.ln()
-        # data rows
-        for _, r in df.iterrows():
-            for i, c in enumerate(df.columns):
-                pdf.cell(widths[i], 6, str(r[c])[:20], border=1)
-            pdf.ln()
-        pdf.ln(2)
-
-    # Draw all tables
-    table(df_machine, "Machine Allocation", [40, 20, 20, 20, 24])
-    table(df_prod, "Production (MT)", [60, 30])
-    table(df_pile, "Pile Made (TON)", [35, 20, 20, 20, 24])
-    table(df_roll, "Roll Made (EA)", [35, 20, 20, 20, 24])
-
-    # ✅ Safe BytesIO output (no dest="S")
-    buf = io.BytesIO()
-    pdf.output(buf)
-    buf.seek(0)
-
-    pdf_bytes = buf.getvalue()
-
-    # ✅ Always return bytes
-    if isinstance(pdf_bytes, str):
-        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
-    elif not isinstance(pdf_bytes, (bytes, bytearray)):
-        pdf_bytes = bytes(pdf_bytes)
-
-    return pdf_bytes
-
-
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: Dict[str, Any],
                  df_machine: pd.DataFrame,
@@ -222,9 +176,13 @@ with st.sidebar:
 
 img_bytes = img_name = mime = None
 if cam:
-    img_bytes = cam.getvalue(); img_name = f"cam_{dt.datetime.utcnow().isoformat()}.jpg"; mime = "image/jpeg"
+    img_bytes = cam.getvalue()
+    img_name = f"cam_{dt.datetime.utcnow().isoformat()}.jpg"
+    mime = "image/jpeg"
 elif up:
-    img_bytes = up.getvalue(); img_name = up.name; mime = up.type
+    img_bytes = up.getvalue()
+    img_name = up.name
+    mime = up.type
 
 if not img_bytes:
     st.info("Upload or capture a Batching Entry sheet image to start.")
@@ -279,7 +237,7 @@ header = {"Date": date_val, "Shift": shift_val, "Unit": unit_val, "Title": title
 
 # ------------------ Save / Export ------------------
 st.markdown("**Step 4: Save / Export**")
-b1, b2, b3, b4, b5 = st.columns(5)
+b1, b2, b3, b4 = st.columns(4)
 
 if b1.button("💾 Save to MongoDB", type="primary"):
     saved = upsert_mongo(header, df_machine_edit, df_prod_edit, df_pile_edit, df_roll_edit, img_name, img_bytes)
@@ -312,15 +270,11 @@ b3.download_button(
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# ✅ PDF with centralized font
-pdf_bytes = export_pdf(header, df_machine_edit, df_prod_edit, df_pile_edit, df_roll_edit)
-b4.download_button("⬇️ PDF", pdf_bytes, "batching_entry.pdf", "application/pdf")
-
 # Quick CSVs
-b5.download_button("⬇️ Machine CSV", df_machine_edit.to_csv(index=False).encode(), "machine_allocation.csv", "text/csv")
+b4.download_button("⬇️ Machine CSV", df_machine_edit.to_csv(index=False).encode(), "machine_allocation.csv", "text/csv")
 st.download_button("⬇️ Production CSV", df_prod_edit.to_csv(index=False).encode(), "production_mt.csv", "text/csv")
 st.download_button("⬇️ Pile CSV", df_pile_edit.to_csv(index=False).encode(), "pile_made_ton.csv", "text/csv")
 st.download_button("⬇️ Roll CSV", df_roll_edit.to_csv(index=False).encode(), "roll_made_ea.csv", "text/csv")
 
 st.markdown("---")
-st.caption("Notes: 'x' is treated as 0. Values like 4:50 are parsed as 4.50. Edit any cell before saving/exporting.")
+st.caption("💡 PDF export removed for stability. Use CSV or XLSX for reports.")
