@@ -29,7 +29,7 @@ def login_page():
     st.markdown(
         """
         <style>
-        /* Hide sidebar, toolbar, and hamburger menu */
+        /* Hide sidebar, header, and footer on login */
         [data-testid="stSidebar"], header, footer {visibility: hidden !important;}
         body {background-color: #000000 !important;}
 
@@ -94,7 +94,7 @@ def login_page():
             login_user(username, user["role"])
             st.session_state["authenticated"] = True
             st.experimental_set_query_params(page="home")
-            st.experimental_rerun()  # 🔁 Instant redirect to homepage
+            st.rerun()  # ✅ use modern rerun
         else:
             st.error("❌ Invalid credentials. Try again.")
 
@@ -177,7 +177,7 @@ def homepage():
         font-size: 16px;
         font-weight: 600;
         box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        transition: all 0.15s ease-in-out;
+        transition: all 0.15s ease-in-out.
     }}
     .card div[data-testid="stButton"] > button:hover {{
         filter: brightness(1.1);
