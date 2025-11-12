@@ -1,7 +1,6 @@
 # ================================================
 # pages/Spinning_Production.py
-# Gemini 2.5 Flash OCR • Mongo • CSV/JSON/XLSX/PDF
-# Safe font via utils/pdf_utils.get_pdf_base
+# Gemini 2.5 Flash OCR • Mongo • CSV/JSON/XLSX
 # ================================================
 import os, io, json, re, datetime as dt
 import pandas as pd
@@ -9,7 +8,6 @@ import streamlit as st
 from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 import google.generativeai as genai
-from utils.pdf_utils import get_pdf_base
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="Spinning Production OCR", layout="wide")
@@ -115,49 +113,6 @@ Return strict JSON:
         st.error(f"❌ Gemini API Error: {e}")
         return {"header": {}, "rows": []}
 
-# ------------------ ✅ PDF EXPORT (safe font) ------------------
-def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """✅ Fully Streamlit-safe PDF export (always returns bytes)."""
-    import io
-    from fpdf import FPDF
-
-    pdf = get_pdf_base("Spinning Production — OCR Extract", header)
-    pdf.set_font("NotoSans", "", 8)
-
-    show_cols = [
-        "Sl_No", "Quality", "Frame_A", "Frame_B", "Frame_C",
-        "Production_A", "Production_B", "Production_C"
-    ]
-    col_w = [10, 30, 25, 25, 25, 30, 30, 30]
-
-    # ---- Table Header ----
-    for i, c in enumerate(show_cols):
-        pdf.cell(col_w[i], 6, c, border=1, align="C")
-    pdf.ln()
-
-    # ---- Table Rows ----
-    for _, r in df.iterrows():
-        vals = [str(r.get(c, "")) for c in show_cols]
-        for i, v in enumerate(vals):
-            pdf.cell(col_w[i], 6, v, border=1)
-        pdf.ln()
-
-    # ✅ Safe output — write to BytesIO buffer (no dest="S")
-    buf = io.BytesIO()
-    pdf.output(buf)
-    buf.seek(0)
-
-    pdf_bytes = buf.getvalue()
-
-    # ✅ Ensure it’s truly bytes
-    if isinstance(pdf_bytes, str):
-        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
-    elif not isinstance(pdf_bytes, (bytes, bytearray)):
-        pdf_bytes = bytes(pdf_bytes)
-
-    return pdf_bytes
-
-
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
     doc = {
@@ -195,7 +150,7 @@ if not img_bytes:
     st.info("Upload or capture a Spinning Production sheet image to start.")
     st.stop()
 
-st.image(img_bytes, caption="Input Image", use_column_width=True)
+st.image(img_bytes, caption="Input Image", use_container_width=True)
 st.markdown("**Step 1:** Extracting with Gemini…")
 
 data = call_gemini_for_spinning(img_bytes, mime)
@@ -216,7 +171,7 @@ header_edit = {"Date": date_val, "Shift": shift_val, "Supervisor_Signature": sup
 
 # ------------------ SAVE / EXPORT ------------------
 st.markdown("**Step 3: Save & Export**")
-cA, cB, cC, cD = st.columns(4)
+cA, cB, cC = st.columns(3)
 
 if cA.button("💾 Save to MongoDB", type="primary"):
     saved = upsert_mongo(header_edit, edited, img_name, img_bytes)
@@ -235,15 +190,11 @@ cC.download_button("⬇️ JSON", data=json_bytes, file_name="spinning_productio
 xlsx_buf = io.BytesIO()
 with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
     edited.to_excel(writer, index=False, sheet_name="SpinningProduction")
-cD.download_button(
+st.download_button(
     "⬇️ XLSX", data=xlsx_buf.getvalue(),
     file_name="spinning_production.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# PDF
-pdf_bytes = export_pdf(edited, header_edit)
-st.download_button("⬇️ PDF", data=pdf_bytes, file_name="spinning_production.pdf", mime="application/pdf")
-
 st.markdown("---")
-st.caption("Tip: You can refine values in the grid before saving or exporting.")
+st.caption("PDF export removed for reliability — use CSV or XLSX instead.")
