@@ -26,42 +26,59 @@ USERS = {
 # 🔐 LOGIN PAGE
 # ======================================================
 def login_page():
-    st.markdown(
-        """
-        <style>
-        /* Hide sidebar, header, and footer on login */
-        [data-testid="stSidebar"], header, footer {visibility: hidden !important;}
-        body {background-color: #000000 !important;}
+    # Detect dark or light theme
+    is_dark = st.get_option("theme.base") == "dark"
 
-        .login-box {
-            background: linear-gradient(135deg, #8ec5fc, #e0c3fc);
+    input_bg = "#1e293b" if is_dark else "#ffffff"
+    input_text = "#f1f5f9" if is_dark else "#1e293b"
+    input_border = "#475569" if is_dark else "#94a3b8"
+    label_color = "#e2e8f0" if is_dark else "#1e3a8a"
+    login_bg = "linear-gradient(135deg, #1e293b, #0f172a)" if is_dark else "linear-gradient(135deg, #8ec5fc, #e0c3fc)"
+    title_color = "#93c5fd" if is_dark else "#1e3a8a"
+    sub_color = "#cbd5e1" if is_dark else "#334155"
+
+    # CSS Styling
+    st.markdown(
+        f"""
+        <style>
+        [data-testid="stSidebar"], header, footer {{visibility: hidden !important;}}
+        body {{background-color: #000000 !important;}}
+
+        .login-box {{
+            background: {login_bg};
             padding: 2.5rem;
             border-radius: 15px;
             box-shadow: 0 8px 25px rgba(0,0,0,0.3);
             width: 400px;
             margin: 8rem auto;
             text-align: center;
-        }
-        .login-box h2 {
-            color: #1e3a8a;
+            transition: all 0.3s ease;
+        }}
+        .login-box h2 {{
+            color: {title_color};
             margin-bottom: 0.5rem;
-        }
-        .login-sub {
-            color: #334155;
+        }}
+        .login-sub {{
+            color: {sub_color};
             font-size: 0.95rem;
             margin-bottom: 1.8rem;
-        }
-        div[data-testid="stTextInput"] label {
-            color: white !important;
+        }}
+        div[data-testid="stTextInput"] label {{
+            color: {label_color} !important;
             font-weight: 600 !important;
-        }
-        div[data-testid="stTextInput"] input {
-            background-color: rgba(30,41,59,0.8) !important;
-            color: white !important;
-            border: 1px solid #475569 !important;
+        }}
+        div[data-testid="stTextInput"] input {{
+            background-color: {input_bg} !important;
+            color: {input_text} !important;
+            border: 1px solid {input_border} !important;
             border-radius: 8px !important;
-        }
-        div[data-testid="stButton"] > button {
+            box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+        }}
+        div[data-testid="stTextInput"] input:focus {{
+            border: 1.5px solid #1A73E8 !important;
+            box-shadow: 0 0 6px rgba(26,115,232,0.3);
+        }}
+        div[data-testid="stButton"] > button {{
             background: linear-gradient(90deg,#1A73E8,#4AB3F4);
             color: white;
             border: none;
@@ -69,15 +86,30 @@ def login_page():
             padding: 0.9rem 0;
             border-radius: 8px;
             font-weight: 600;
-        }
-        div[data-testid="stButton"] > button:hover {
+            margin-top: 0.5rem;
+        }}
+        div[data-testid="stButton"] > button:hover {{
             filter: brightness(1.1);
-        }
+        }}
+        .forgot {{
+            color: {title_color};
+            font-size: 0.9rem;
+            text-align: right;
+            margin-top: 0.4rem;
+        }}
+        .forgot a {{
+            color: {title_color};
+            text-decoration: none;
+        }}
+        .forgot a:hover {{
+            text-decoration: underline;
+        }}
         </style>
         """,
         unsafe_allow_html=True
     )
 
+    # Login Box
     st.markdown("""
     <div class='login-box'>
         <h2>🔐 Mill Production OCR Portal</h2>
@@ -86,23 +118,58 @@ def login_page():
     """, unsafe_allow_html=True)
 
     username = st.text_input("👤 Username", placeholder="Enter your username")
-    password = st.text_input("🔑 Password", placeholder="Enter your password", type="password")
 
+    # Show/Hide password toggle
+    show_pass = st.checkbox("👁️ Show password", value=False)
+    password = st.text_input(
+        "🔑 Password",
+        placeholder="Enter your password",
+        type="default" if show_pass else "password"
+    )
+
+    # Forgot password link
+    st.markdown(
+        "<div class='forgot'><a href='#' onclick='return false;'>Forgot Password?</a></div>",
+        unsafe_allow_html=True
+    )
+
+    # Login button
     if st.button("Login", use_container_width=True):
         user = USERS.get(username)
         if user and user["password"] == password:
             login_user(username, user["role"])
             st.session_state["authenticated"] = True
             st.experimental_set_query_params(page="home")
-            st.rerun()  # ✅ use modern rerun
+            st.rerun()
         else:
             st.error("❌ Invalid credentials. Try again.")
+
+    # Handle “Forgot Password” click (show info)
+    if st.session_state.get("forgot_shown", False) is False:
+        js = """
+        <script>
+        const forgot = document.querySelector('.forgot a');
+        if(forgot){
+            forgot.addEventListener('click', () => {
+                window.parent.postMessage({ type: 'forgot_password' }, '*');
+            });
+        }
+        </script>
+        """
+        st.markdown(js, unsafe_allow_html=True)
+        st.session_state["forgot_shown"] = True
+
+    # Listen for custom event from JS
+    event = st.session_state.get("forgot_event")
+    if event == "show_info":
+        st.info("📧 Please contact your IT administrator to reset your password.")
+
 
 # ======================================================
 # 🏠 MAIN OCR DASHBOARD
 # ======================================================
 def homepage():
-    # --- Sidebar user info ---
+    # Sidebar
     st.sidebar.markdown(
         f"""
         <div style="padding:15px; background:linear-gradient(135deg,#3b82f6,#60a5fa);
@@ -114,10 +181,8 @@ def homepage():
     st.sidebar.markdown("---")
     st.sidebar.button("🚪 Logout", on_click=logout_user)
 
-    # --- Detect active theme ---
+    # Theme colors
     is_dark = st.get_option("theme.base") == "dark"
-
-    # --- Dynamic colors ---
     bg_color = "#0b1221" if is_dark else "#ffffff"
     card_color = "#1e293b" if is_dark else "#ffffff"
     text_color = "#e6eaf3" if is_dark else "#0b1221"
@@ -127,7 +192,7 @@ def homepage():
     border_color = "#334155" if is_dark else "#e7eaf0"
     shadow = "0 6px 18px rgba(0,0,0,0.4)" if is_dark else "0 6px 18px rgba(16,24,40,0.08)"
 
-    # --- CSS Theme ---
+    # CSS
     st.markdown(f"""
     <style>
     html, body, [class*="stAppViewContainer"] {{
@@ -177,7 +242,7 @@ def homepage():
         font-size: 16px;
         font-weight: 600;
         box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        transition: all 0.15s ease-in-out.
+        transition: all 0.15s ease-in-out;
     }}
     .card div[data-testid="stButton"] > button:hover {{
         filter: brightness(1.1);
@@ -192,45 +257,34 @@ def homepage():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Header ---
+    # Header
     st.markdown('<h1 class="app-title">🧵 Production Mill Register OCR — Main Menu</h1>', unsafe_allow_html=True)
     st.markdown('<p class="app-sub">Select a Register to Continue</p>', unsafe_allow_html=True)
     st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
-    # --- Button Cards ---
+    # Buttons
     col1, col2 = st.columns(2)
-
     with col1:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Cop Winding (Weft)"):
-            st.switch_page("pages/Cop_Winding.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Batching Entry Khata"):
-            st.switch_page("pages/Batching_Entry.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Roll Stock Consumption"):
-            st.switch_page("pages/Roll_Stock_Consumption.py")
-        st.markdown('</div>', unsafe_allow_html=True)
+        for name, page in [
+            ("📘 Cop Winding (Weft)", "pages/Cop_Winding.py"),
+            ("📘 Batching Entry Khata", "pages/Batching_Entry.py"),
+            ("📘 Roll Stock Consumption", "pages/Roll_Stock_Consumption.py"),
+        ]:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            if st.button(name):
+                st.switch_page(page)
+            st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("🧵 Spool Winding (Warp)"):
-            st.switch_page("pages/Spool_Winding.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Drawing Meter Reading"):
-            st.switch_page("pages/Drawing_Meter.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Roll Stock Carding"):
-            st.switch_page("pages/Roll_Stock_Carding.py")
-        st.markdown('</div>', unsafe_allow_html=True)
+        for name, page in [
+            ("🧵 Spool Winding (Warp)", "pages/Spool_Winding.py"),
+            ("📘 Drawing Meter Reading", "pages/Drawing_Meter.py"),
+            ("📘 Roll Stock Carding", "pages/Roll_Stock_Carding.py"),
+        ]:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            if st.button(name):
+                st.switch_page(page)
+            st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     if st.button("📘 Spinning Production Form"):
