@@ -37,10 +37,10 @@ def login_page():
     title_color = "#93c5fd" if is_dark else "#1e3a8a"
     sub_color = "#cbd5e1" if is_dark else "#334155"
 
+    # CSS Styling
     st.markdown(
         f"""
         <style>
-        /* Hide sidebar, header, and footer on login */
         [data-testid="stSidebar"], header, footer {{visibility: hidden !important;}}
         body {{background-color: #000000 !important;}}
 
@@ -86,15 +86,30 @@ def login_page():
             padding: 0.9rem 0;
             border-radius: 8px;
             font-weight: 600;
+            margin-top: 0.5rem;
         }}
         div[data-testid="stButton"] > button:hover {{
             filter: brightness(1.1);
+        }}
+        .forgot {{
+            color: {title_color};
+            font-size: 0.9rem;
+            text-align: right;
+            margin-top: 0.4rem;
+        }}
+        .forgot a {{
+            color: {title_color};
+            text-decoration: none;
+        }}
+        .forgot a:hover {{
+            text-decoration: underline;
         }}
         </style>
         """,
         unsafe_allow_html=True
     )
 
+    # Login Box
     st.markdown("""
     <div class='login-box'>
         <h2>🔐 Mill Production OCR Portal</h2>
@@ -105,6 +120,13 @@ def login_page():
     username = st.text_input("👤 Username", placeholder="Enter your username")
     password = st.text_input("🔑 Password", placeholder="Enter your password", type="password")
 
+    # Forgot password link
+    st.markdown(
+        "<div class='forgot'><a href='#' onclick='return false;'>Forgot Password?</a></div>",
+        unsafe_allow_html=True
+    )
+
+    # Login button
     if st.button("Login", use_container_width=True):
         user = USERS.get(username)
         if user and user["password"] == password:
@@ -115,11 +137,31 @@ def login_page():
         else:
             st.error("❌ Invalid credentials. Try again.")
 
+    # Forgot password JS placeholder
+    if st.session_state.get("forgot_shown", False) is False:
+        js = """
+        <script>
+        const forgot = document.querySelector('.forgot a');
+        if(forgot){
+            forgot.addEventListener('click', () => {
+                window.parent.postMessage({ type: 'forgot_password' }, '*');
+            });
+        }
+        </script>
+        """
+        st.markdown(js, unsafe_allow_html=True)
+        st.session_state["forgot_shown"] = True
+
+    event = st.session_state.get("forgot_event")
+    if event == "show_info":
+        st.info("📧 Please contact your IT administrator to reset your password.")
+
+
 # ======================================================
 # 🏠 MAIN OCR DASHBOARD
 # ======================================================
 def homepage():
-    # --- Sidebar user info ---
+    # Sidebar
     st.sidebar.markdown(
         f"""
         <div style="padding:15px; background:linear-gradient(135deg,#3b82f6,#60a5fa);
@@ -131,10 +173,8 @@ def homepage():
     st.sidebar.markdown("---")
     st.sidebar.button("🚪 Logout", on_click=logout_user)
 
-    # --- Detect active theme ---
+    # Theme colors
     is_dark = st.get_option("theme.base") == "dark"
-
-    # --- Dynamic colors ---
     bg_color = "#0b1221" if is_dark else "#ffffff"
     card_color = "#1e293b" if is_dark else "#ffffff"
     text_color = "#e6eaf3" if is_dark else "#0b1221"
@@ -144,7 +184,7 @@ def homepage():
     border_color = "#334155" if is_dark else "#e7eaf0"
     shadow = "0 6px 18px rgba(0,0,0,0.4)" if is_dark else "0 6px 18px rgba(16,24,40,0.08)"
 
-    # --- CSS Theme ---
+    # CSS
     st.markdown(f"""
     <style>
     html, body, [class*="stAppViewContainer"] {{
@@ -209,50 +249,42 @@ def homepage():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Header ---
+    # Header
     st.markdown('<h1 class="app-title">🧵 Production Mill Register OCR — Main Menu</h1>', unsafe_allow_html=True)
     st.markdown('<p class="app-sub">Select a Register to Continue</p>', unsafe_allow_html=True)
     st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
-    # --- Button Cards ---
+    # Buttons
+       # --- Button Layout ---
     col1, col2 = st.columns(2)
 
+    def render_card(icon, label, page):
+        st.markdown(f"""
+        <div class="card">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:24px;">{icon}</span>
+                <span style="font-weight:600; font-size:17px;">{label}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button(f"{icon}  Open {label}", key=label, use_container_width=True):
+            st.switch_page(page)
+
     with col1:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Cop Winding (Weft)"):
-            st.switch_page("pages/Cop_Winding.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Batching Entry Khata"):
-            st.switch_page("pages/Batching_Entry.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Roll Stock Consumption"):
-            st.switch_page("pages/Roll_Stock_Consumption.py")
-        st.markdown('</div>', unsafe_allow_html=True)
+        render_card("🧶", "Cop Winding (Weft)", "pages/Cop_Winding.py")
+        render_card("🧾", "Batching Entry Khata", "pages/Batching_Entry.py")
+        render_card("📊", "Roll Stock Consumption", "pages/Roll_Stock_Consumption.py")
 
     with col2:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("🧵 Spool Winding (Warp)"):
-            st.switch_page("pages/Spool_Winding.py")
-        st.markdown('</div>', unsafe_allow_html=True)
+        render_card("🧵", "Spool Winding (Warp)", "pages/Spool_Winding.py")
+        render_card("⚙️", "Drawing Meter Reading", "pages/Drawing_Meter.py")
+        render_card("🧰", "Roll Stock Carding", "pages/Roll_Stock_Carding.py")
 
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Drawing Meter Reading"):
-            st.switch_page("pages/Drawing_Meter.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.button("📘 Roll Stock Carding"):
-            st.switch_page("pages/Roll_Stock_Carding.py")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    if st.button("📘 Spinning Production Form"):
-        st.switch_page("pages/Spinning_Production.py")
+    # Full width card for Spinning
+    st.markdown('<div style="margin-top:10px;">', unsafe_allow_html=True)
+    render_card("🏭", "Spinning Production Form", "pages/Spinning_Production.py")
     st.markdown('</div>', unsafe_allow_html=True)
+
 
     st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
     st.markdown('<p class="footer">Powered by <b>Gemini 2.5 Flash</b> ⚡ + <b>Streamlit</b></p>', unsafe_allow_html=True)
