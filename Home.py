@@ -4,7 +4,12 @@ from session_manager import init_session, login_user, logout_user, check_timeout
 # ======================================================
 # ⚙️ PAGE CONFIGURATION
 # ======================================================
-st.set_page_config(page_title="Mill Registers — Production OCR", layout="centered")
+st.set_page_config(
+    page_title="Mill Registers — Production OCR",
+    layout="centered",
+    initial_sidebar_state="collapsed"  # hide sidebar on login
+)
+
 init_session()
 check_timeout()
 
@@ -24,14 +29,17 @@ def login_page():
     st.markdown(
         """
         <style>
-        body {background-color: #000000;}
+        /* Hide sidebar, toolbar, and hamburger menu */
+        [data-testid="stSidebar"], header, footer {visibility: hidden !important;}
+        body {background-color: #000000 !important;}
+
         .login-box {
             background: linear-gradient(135deg, #8ec5fc, #e0c3fc);
             padding: 2.5rem;
             border-radius: 15px;
             box-shadow: 0 8px 25px rgba(0,0,0,0.3);
             width: 400px;
-            margin: 5rem auto;
+            margin: 8rem auto;
             text-align: center;
         }
         .login-box h2 {
@@ -84,11 +92,9 @@ def login_page():
         user = USERS.get(username)
         if user and user["password"] == password:
             login_user(username, user["role"])
-            st.session_state["login_time"] = st.session_state.get("login_time", 0)
-            st.success("✅ Login successful! Redirecting...")
             st.session_state["authenticated"] = True
-            st.experimental_set_query_params(page="home")  # Safe on Streamlit Cloud
-            st.session_state["reroute"] = True
+            st.experimental_set_query_params(page="home")
+            st.experimental_rerun()  # 🔁 Instant redirect to homepage
         else:
             st.error("❌ Invalid credentials. Try again.")
 
