@@ -199,24 +199,33 @@ if b1.button("💾 Save to MongoDB", type="primary"):
     st.success("✅ Saved to MongoDB")
     st.json({"_id": str(saved.get("_id")), "Date": header_edit["Date"]})
 
+# ✅ Add TOTAL row at bottom
+total_row = {
+    "Qty": "TOTAL",
+    "Maturity_Hrs": "",
+    "AM_6": col_sums["AM_6"],
+    "AM_11": col_sums["AM_11"],
+    "PM_2": col_sums["PM_2"],
+    "PM_5": col_sums["PM_5"],
+    "PM_10": col_sums["PM_10"],
+}
+edited_with_total = pd.concat([edited, pd.DataFrame([total_row])], ignore_index=True)
+
 # CSV
-csv_bytes = edited.to_csv(index=False).encode()
+csv_bytes = edited_with_total.to_csv(index=False).encode()
 b2.download_button("⬇️ CSV", data=csv_bytes, file_name="roll_stock_consumption.csv", mime="text/csv")
 
 # JSON
-json_bytes = edited.to_json(orient="records", indent=2).encode()
+json_bytes = edited_with_total.to_json(orient="records", indent=2).encode()
 b3.download_button("⬇️ JSON", data=json_bytes, file_name="roll_stock_consumption.json", mime="application/json")
 
 # XLSX
 xlsx_buf = io.BytesIO()
 with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
-    edited.to_excel(writer, index=False, sheet_name="RollStock")
+    edited_with_total.to_excel(writer, index=False, sheet_name="RollStock")
 b4.download_button(
     "⬇️ XLSX",
     data=xlsx_buf.getvalue(),
     file_name="roll_stock_consumption.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
-
-st.markdown("---")
-st.caption("💡 PDF export removed for stability. Use CSV or XLSX for reports.")
