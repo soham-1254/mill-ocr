@@ -149,18 +149,41 @@ Return JSON only:
 
 # ------------------ ✅ PDF EXPORT (Cloud-safe, Sectioned) ------------------
 def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """✅ Fully Streamlit Cloud-safe, grouped by Drawing Stage"""
+    """✅ Fully Streamlit Cloud-safe, grouped by Drawing Stage (no IndexError)."""
+    import io
+    from fpdf import FPDF
+
     pdf = get_pdf_base("Drawing Meter Reading — OCR Extract", header)
-    pdf.set_font("NotoSans", "", 8)
+
+    # ✅ ensure font safety
+    font_path = "/tmp/NotoSans-Regular.ttf"
+    if not os.path.exists(font_path):
+        try:
+            import requests
+            url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf"
+            r = requests.get(url, timeout=30)
+            with open(font_path, "wb") as f:
+                f.write(r.content)
+        except Exception:
+            font_path = None
+
+    try:
+        if font_path and os.path.exists(font_path):
+            pdf.add_font("NotoSans", "", font_path, uni=True)
+            pdf.set_font("NotoSans", "", 8)
+        else:
+            pdf.set_font("Helvetica", "", 8)
+    except Exception:
+        pdf.set_font("Helvetica", "", 8)
 
     show_cols = ["Sl_No", "Mc_No", "Efficiency_at_100%", "Opening_Meter_Reading",
                  "Closing_Meter_Reading", "Difference", "Efficiency", "Worker_Name"]
     col_w = [12, 18, 28, 28, 28, 22, 22, 40]
 
     for stage, group in df.groupby("Drawing_Stage"):
-        pdf.set_font("NotoSans", "", 9)
-        pdf.cell(0, 8, f"🔹 {stage}", ln=1)
-        pdf.set_font("NotoSans", "", 8)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(0, 8, f"{stage}", ln=1)
+        pdf.set_font("Helvetica", "", 8)
 
         for c, w in zip(show_cols, col_w):
             pdf.cell(w, 6, c, border=1, align="C")
@@ -182,17 +205,18 @@ def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
             pdf.ln()
         pdf.ln(4)
 
-    # ✅ Write safely to memory
+    # ✅ Safe output to buffer
     buf = io.BytesIO()
-    pdf.output(name=buf)  # Safe fix for Streamlit Cloud
+    pdf.output(dest="F", name=buf)  # write PDF to buffer in memory
     buf.seek(0)
 
-    pdf_bytes = buf.getvalue()
+    pdf_bytes = buf.read()
     if isinstance(pdf_bytes, str):
         pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
     elif not isinstance(pdf_bytes, (bytes, bytearray)):
         pdf_bytes = bytes(pdf_bytes)
     return pdf_bytes
+
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
