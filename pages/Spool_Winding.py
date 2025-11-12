@@ -1,7 +1,6 @@
 # ================================================
 # pages/Spool_Winding.py — Spool Winding Production OCR
-# Gemini 2.5 Flash | Mongo | CSV/JSON/XLSX/PDF
-# Safe font via utils.pdf_utils.get_pdf_base
+# Gemini 2.5 Flash | Mongo | CSV/JSON/XLSX
 # ================================================
 import os, io, json, re, datetime as dt
 import pandas as pd
@@ -10,7 +9,6 @@ from typing import List, Dict, Any
 from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 import google.generativeai as genai
-from utils.pdf_utils import get_pdf_base
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="🧵 Spool Winding Production OCR", layout="wide")
@@ -119,49 +117,6 @@ Return valid JSON ONLY:
         st.error(f"❌ Gemini API Error: {e}")
         return {"header": {}, "rows": []}
 
-# ------------------ ✅ PDF EXPORT (safe font) ------------------
-def export_pdf(df: pd.DataFrame, header: Dict[str, Any]) -> bytes:
-    """✅ Fully Streamlit-safe PDF export (always returns bytes)."""
-    import io
-    from fpdf import FPDF
-
-    pdf = get_pdf_base("Spool Winding Production — OCR Extract", header)
-    pdf.set_font("NotoSans", "", 8)
-
-    show_cols = [
-        "Sl_No", "Quality_Mc_Alloc", "Spinning_Frame_No",
-        "Winding_Frame_No", "Labour_No", "Production_Sum", "Net_Weight", "Remarks"
-    ]
-    col_w = [10, 28, 24, 24, 20, 26, 22, 60]
-
-    # ---- Table Header ----
-    for i, c in enumerate(show_cols):
-        pdf.cell(col_w[i], 6, c, border=1, align="C")
-    pdf.ln()
-
-    # ---- Table Rows ----
-    for _, r in df.iterrows():
-        vals = [str(r.get(c, ""))[:20] for c in show_cols]
-        for i, v in enumerate(vals):
-            pdf.cell(col_w[i], 6, v, border=1)
-        pdf.ln()
-
-    # ✅ Write to memory buffer instead of dest="S"
-    buf = io.BytesIO()
-    pdf.output(buf)
-    buf.seek(0)
-
-    pdf_bytes = buf.getvalue()
-
-    # ✅ Guarantee bytes output
-    if isinstance(pdf_bytes, str):
-        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
-    elif not isinstance(pdf_bytes, (bytes, bytearray)):
-        pdf_bytes = bytes(pdf_bytes)
-
-    return pdf_bytes
-
-
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: Dict[str, Any], df: pd.DataFrame, image_name: str, raw_bytes: bytes):
     doc = {
@@ -197,7 +152,7 @@ if not img_bytes:
     st.info("📸 Please upload or capture a register image to begin OCR extraction.")
     st.stop()
 
-st.image(img_bytes, caption="Input Image Preview", use_column_width=True)
+st.image(img_bytes, caption="Input Image Preview", use_container_width=True)
 st.markdown("**Step 1:** Extracting data with Gemini…")
 data = call_gemini_for_spool(img_bytes, mime)
 
@@ -244,7 +199,7 @@ header_edit = {
 
 # ------------------ Export ------------------
 st.markdown("**Step 4:** Save / Export Data")
-cA, cB, cC, cD = st.columns(4)
+cA, cB, cC = st.columns(3)
 
 if cA.button("💾 Save to MongoDB", type="primary"):
     saved = upsert_mongo(header_edit, edited_df, img_name, img_bytes)
@@ -263,16 +218,12 @@ cC.download_button("⬇️ JSON", json_bytes, "spool_winding.json", "application
 xlsx_buf = io.BytesIO()
 with pd.ExcelWriter(xlsx_buf, engine="xlsxwriter") as writer:
     edited_df.to_excel(writer, index=False, sheet_name="SpoolWinding")
-cD.download_button(
+st.download_button(
     "⬇️ XLSX",
     data=xlsx_buf.getvalue(),
     file_name="spool_winding.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
 
-# PDF
-pdf_bytes = export_pdf(edited_df, header_edit)
-st.download_button("⬇️ PDF", data=pdf_bytes, file_name="spool_winding.pdf", mime="application/pdf")
-
 st.markdown("---")
-st.caption("💡 Tip: Edit data in the grid before saving or exporting for best accuracy.")
+st.caption("💡 PDF export removed for stability. Use CSV or XLSX for reports.")
