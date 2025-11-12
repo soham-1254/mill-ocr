@@ -58,10 +58,7 @@ def fallback_tally_count(text):
     groups = re.findall(r'[|/]+', s)
     total = 0
     for g in groups:
-        if '/' in g:
-            total += 5
-        else:
-            total += g.count('|')
+        total += 5 if '/' in g else g.count('|')
     return total if total > 0 else None
 
 def json_safe_load(s):
@@ -82,7 +79,7 @@ def to_int(x):
         return None
 
 # ------------------------------------------------------
-# NORMALIZATION
+# NORMALIZATION (SAFE MERGE FIXED)
 # ------------------------------------------------------
 def normalize_and_verify(rows):
     rows = rows or []
@@ -123,22 +120,41 @@ def normalize_and_verify(rows):
 
     df = pd.DataFrame(norm)
 
-    if df.empty:
-        for c in COP_COLUMNS:
-            df[c] = None
-        return df
-
+    # Ensure all columns exist
     for c in COP_COLUMNS:
         if c not in df.columns:
             df[c] = None
 
-    df["Final_Tally"] = pd.to_numeric(df["Final_Tally"], errors="coerce").fillna(0).astype(int)
-    lot_sum = df.groupby("Quality", dropna=False)["Final_Tally"].sum().reset_index()
-    lot_sum.rename(columns={"Final_Tally": "Lot_Total_Tally"}, inplace=True)
-    df = df.merge(lot_sum, on="Quality", how="left")
+    # ✅ Safe handling for missing Quality column
+    if "Quality" not in df.columns:
+        df["Quality"] = None
 
-    footer = df.groupby("Quality", dropna=False)["Lot_Footer_Total"].max().reset_index()
-    df = df.drop(columns=["Lot_Footer_Total"]).merge(footer, on="Quality", how="left")
+    # Compute totals safely
+    df["Final_Tally"] = pd.to_numeric(df["Final_Tally"], errors="coerce").fillna(0).astype(int)
+
+    if not df.empty:
+        lot_sum = (
+            df.groupby("Quality", dropna=False)["Final_Tally"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Final_Tally": "Lot_Total_Tally"})
+        )
+        df = df.merge(lot_sum, on="Quality", how="left")
+    else:
+        df["Lot_Total_Tally"] = None
+
+    if "Lot_Footer_Total" not in df.columns:
+        df["Lot_Footer_Total"] = None
+
+    if "Quality" in df.columns:
+        footer = (
+            df.groupby("Quality", dropna=False)["Lot_Footer_Total"]
+            .max()
+            .reset_index()
+        )
+        df = df.drop(columns=["Lot_Footer_Total"], errors="ignore").merge(footer, on="Quality", how="left")
+    else:
+        df["Lot_Footer_Total"] = None
 
     def lot_verify(row):
         if row.get("Lot_Footer_Total") is None:
@@ -220,7 +236,7 @@ header = data.get("header", {}) or {}
 df = normalize_and_verify(rows)
 
 # ------------------- Editor -------------------
-st.markdown("**Step 2:** Review & Edit**")
+st.markdown("**Step 2:** Review & Edit")
 edited = st.data_editor(
     df,
     use_container_width=True,
@@ -232,7 +248,7 @@ edited = st.data_editor(
 )
 
 # ------------------- Header -------------------
-st.markdown("**Step 3:** Header Details**")
+st.markdown("**Step 3:** Header Details")
 c1, c2, c3 = st.columns(3)
 regn = c1.text_input("Register Name", header.get("Register_Name") or "S/Weft Wind")
 shift = c2.text_input("Shift", header.get("Shift") or "")
@@ -240,7 +256,7 @@ date = c3.text_input("Date", header.get("Date") or "")
 header_edit = {"Register_Name": regn, "Shift": shift, "Date": date}
 
 # ------------------- Export -------------------
-st.markdown("**Step 4:** Save & Export**")
+st.markdown("**Step 4:** Save & Export")
 c1, c2 = st.columns(2)
 
 if c1.button("💾 Save to MongoDB", type="primary"):
@@ -252,4 +268,4 @@ csv_bytes = edited.to_csv(index=False).encode()
 c2.download_button("⬇️ CSV", csv_bytes, "cop_winding_data.csv", "text/csv")
 
 st.markdown("---")
-st.caption("Notes: PDF export removed for reliability. Use CSV for reporting.")
+st.caption("Notes: PDF export removed for reliability. Safe merge added for missing Quality column.")
