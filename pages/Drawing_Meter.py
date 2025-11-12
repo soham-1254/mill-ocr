@@ -1,6 +1,6 @@
 # ======================================================
 # pages/Drawing_Meter_Reading.py — Drawing Meter OCR Page
-# (Gemini 2.5 Flash + Mongo + PDF with /tmp Font via utils.pdf_utils)
+# (Gemini 2.5 Flash + Mongo + CSV/XLSX/JSON)
 # ======================================================
 import os, io, json, re, datetime as dt
 import pandas as pd
@@ -8,7 +8,6 @@ import streamlit as st
 from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 import google.generativeai as genai
-from utils.pdf_utils import get_pdf_base   # ✅ centralized, cloud-safe PDF base
 
 # ------------------ CONFIG ------------------
 st.set_page_config(page_title="Drawing Meter Reading OCR", layout="wide")
@@ -40,7 +39,6 @@ ROW_COLUMNS = [
     "Efficiency",
     "Worker_Name"
 ]
-HEADER_FIELDS = ["Date", "Shift", "Supervisor_Signature"]
 
 # ------------------ HELPERS ------------------
 def json_safe_load(s: str) -> dict:
@@ -147,77 +145,6 @@ Return JSON only:
         st.error(f"❌ Gemini API Error: {e}")
         return {"header": {}, "rows": []}
 
-# ------------------ ✅ PDF EXPORT (Cloud-safe, Sectioned) ------------------
-def export_pdf(df: pd.DataFrame, header: dict) -> bytes:
-    """✅ Fully Streamlit Cloud-safe, grouped by Drawing Stage (no IndexError)."""
-    import io
-    from fpdf import FPDF
-
-    pdf = get_pdf_base("Drawing Meter Reading — OCR Extract", header)
-
-    # ✅ ensure font safety
-    font_path = "/tmp/NotoSans-Regular.ttf"
-    if not os.path.exists(font_path):
-        try:
-            import requests
-            url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf"
-            r = requests.get(url, timeout=30)
-            with open(font_path, "wb") as f:
-                f.write(r.content)
-        except Exception:
-            font_path = None
-
-    try:
-        if font_path and os.path.exists(font_path):
-            pdf.add_font("NotoSans", "", font_path, uni=True)
-            pdf.set_font("NotoSans", "", 8)
-        else:
-            pdf.set_font("Helvetica", "", 8)
-    except Exception:
-        pdf.set_font("Helvetica", "", 8)
-
-    show_cols = ["Sl_No", "Mc_No", "Efficiency_at_100%", "Opening_Meter_Reading",
-                 "Closing_Meter_Reading", "Difference", "Efficiency", "Worker_Name"]
-    col_w = [12, 18, 28, 28, 28, 22, 22, 40]
-
-    for stage, group in df.groupby("Drawing_Stage"):
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(0, 8, f"{stage}", ln=1)
-        pdf.set_font("Helvetica", "", 8)
-
-        for c, w in zip(show_cols, col_w):
-            pdf.cell(w, 6, c, border=1, align="C")
-        pdf.ln()
-
-        for _, r in group.iterrows():
-            row = [
-                str(r.get("Sl_No") or ""),
-                str(r.get("Mc_No") or ""),
-                str(r.get("Efficiency_at_100%") or ""),
-                str(r.get("Opening_Meter_Reading") or ""),
-                str(r.get("Closing_Meter_Reading") or ""),
-                str(r.get("Difference") or ""),
-                str(r.get("Efficiency") or ""),
-                str(r.get("Worker_Name") or ""),
-            ]
-            for val, w in zip(row, col_w):
-                pdf.cell(w, 6, val, border=1)
-            pdf.ln()
-        pdf.ln(4)
-
-    # ✅ Safe output to buffer
-    buf = io.BytesIO()
-    pdf.output(dest="F", name=buf)  # write PDF to buffer in memory
-    buf.seek(0)
-
-    pdf_bytes = buf.read()
-    if isinstance(pdf_bytes, str):
-        pdf_bytes = pdf_bytes.encode("latin-1", errors="ignore")
-    elif not isinstance(pdf_bytes, (bytes, bytearray)):
-        pdf_bytes = bytes(pdf_bytes)
-    return pdf_bytes
-
-
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
     doc = {
@@ -285,8 +212,8 @@ supervisor_val = c3.text_input("Supervisor Signature", value=header.get("Supervi
 header_edit = {"Date": date_val, "Shift": shift_val, "Supervisor_Signature": supervisor_val}
 
 # ------------------ EXPORT ------------------
-st.markdown("**Step 4: Save & Export**")
-c1, c2, c3, c4 = st.columns(4)
+st.markdown("**Step 4: Save & Export (No PDF)**")
+c1, c2, c3 = st.columns(3)
 
 if c1.button("💾 Save to MongoDB", type="primary"):
     saved = upsert_mongo(header_edit, edited, img_name, img_bytes)
@@ -298,9 +225,6 @@ c2.download_button("⬇️ CSV", data=csv_bytes, file_name="drawing_meter_data.c
 
 json_bytes = edited.to_json(orient="records", indent=2).encode()
 c3.download_button("⬇️ JSON", data=json_bytes, file_name="drawing_meter_data.json", mime="application/json")
-
-pdf_bytes = export_pdf(edited, header_edit)
-c4.download_button("⬇️ PDF", data=pdf_bytes, file_name="drawing_meter_data.pdf", mime="application/pdf")
 
 st.markdown("---")
 st.caption("Notes: Each section (1st, 2nd, 3rd Drawing) is editable separately before export or saving.")
