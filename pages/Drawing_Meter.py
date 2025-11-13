@@ -222,13 +222,13 @@ df = normalize_rows(rows)
 df1, df2, df3 = segregate_drawings(df)
 
 st.subheader("1️⃣ 1st Drawing")
-df1_edit = st.data_editor(df1, use_container_width=True)
+df1_edit = st.data_editor(df1, use_container_width=True, key="draw1")
 
 st.subheader("2️⃣ 2nd Drawing")
-df2_edit = st.data_editor(df2, use_container_width=True)
+df2_edit = st.data_editor(df2, use_container_width=True, key="draw2")
 
 st.subheader("3️⃣ 3rd Drawing")
-df3_edit = st.data_editor(df3, use_container_width=True)
+df3_edit = st.data_editor(df3, use_container_width=True, key="draw3")
 
 edited = pd.concat([df1_edit, df2_edit, df3_edit], ignore_index=True)
 
