@@ -13,10 +13,11 @@ import google.generativeai as genai
 st.set_page_config(page_title="Drawing Meter Reading OCR", layout="wide")
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://Finisher_card_sliver:Sohampanda@cluster0.mjn5qdx.mongodb.net/?retryWrites=true&w=majority")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "mill_registers")
-COLL_NAME = os.getenv("COLLECTION_NAME", "drawing_meter_entries")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyDF_vacTeSPPgPOOe2Q6mUyfgHFN6r7CXA")
+# ✅ Dedicated env var for this page
+COLL_NAME = os.getenv("DRAWING_COLLECTION", "drawing_meter_entries")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
@@ -29,7 +30,7 @@ else:
 
 # ------------------ CONSTANTS ------------------
 ROW_COLUMNS = [
-    "Drawing_Stage",  # ✅ New field for 1st, 2nd, 3rd drawing
+    "Drawing_Stage",  # ✅ 1st, 2nd, 3rd drawing
     "Sl_No",
     "Mc_No",
     "Efficiency_at_100%",
@@ -55,7 +56,7 @@ def json_safe_load(s: str) -> dict:
 
 def to_int(x):
     try:
-        if x in [None, "", "null"]:
+        if x in [None, "", "null", "-", "—"]:
             return None
         return int(str(x).strip())
     except Exception:
@@ -63,35 +64,38 @@ def to_int(x):
 
 def to_float(x):
     try:
-        if x in [None, "", "null"]:
+        if x in [None, "", "null", "-", "—"]:
             return None
         return float(str(x).strip())
     except Exception:
         return None
 
 def normalize_rows(rows: list) -> pd.DataFrame:
-    """Normalize rows data and compute necessary fields."""
+    """Normalize rows and compute Difference."""
     norm = []
-    for r in rows:
+    for r in rows or []:
         row = {
-            "Drawing_Stage": r.get("Drawing_Stage") or "",
+            "Drawing_Stage": (r.get("Drawing_Stage") or "").strip(),
             "Sl_No": to_int(r.get("Sl_No")),
-            "Mc_No": r.get("Mc_No"),
+            "Mc_No": str(r.get("Mc_No") or "").strip(),
             "Efficiency_at_100%": to_float(r.get("Efficiency_at_100%")),
             "Opening_Meter_Reading": to_int(r.get("Opening_Meter_Reading")),
             "Closing_Meter_Reading": to_int(r.get("Closing_Meter_Reading")),
-            "Worker_Name": r.get("Worker_Name"),
+            "Worker_Name": str(r.get("Worker_Name") or "").strip(),
         }
+
         if row["Opening_Meter_Reading"] is not None and row["Closing_Meter_Reading"] is not None:
             row["Difference"] = row["Closing_Meter_Reading"] - row["Opening_Meter_Reading"]
         else:
             row["Difference"] = None
+
         row["Efficiency"] = to_float(r.get("Efficiency"))
         norm.append(row)
+
     return pd.DataFrame(norm, columns=ROW_COLUMNS)
 
 def segregate_drawings(df: pd.DataFrame):
-    """Split into 1st, 2nd, 3rd Drawing DataFrames."""
+    """Split data into 1st, 2nd, 3rd Drawing DataFrames."""
     df_1 = df[df["Drawing_Stage"].str.contains("1", case=False, na=False)].copy()
     df_2 = df[df["Drawing_Stage"].str.contains("2", case=False, na=False)].copy()
     df_3 = df[df["Drawing_Stage"].str.contains("3", case=False, na=False)].copy()
@@ -99,19 +103,19 @@ def segregate_drawings(df: pd.DataFrame):
 
 # ------------------ GEMINI OCR ------------------
 def call_gemini_for_drawing(image_bytes: bytes, mime_type: str) -> dict:
-    """Call Gemini API for Drawing Meter OCR extraction"""
+    """Call Gemini 2.5 Flash for Drawing Meter OCR extraction."""
     if not GOOGLE_API_KEY:
         st.error("GOOGLE_API_KEY missing")
         return {"header": {}, "rows": []}
 
     prompt = """
-You are reading a Drawing Meter Reading register page.
+You are reading a Drawing Meter Reading register.
 
 There are 3 sections — 1st Drawing, 2nd Drawing, 3rd Drawing.
 Each row belongs to one of these. Extract with field "Drawing_Stage"
 as one of: "1st Drawing", "2nd Drawing", or "3rd Drawing".
 
-Return JSON only:
+Return strict JSON only:
 {
   "header": {
     "Date": "DD/MM/YY or DD/MM/YYYY",
@@ -147,16 +151,24 @@ Return JSON only:
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
+    """Insert or update OCR data safely in Mongo."""
+    if df.empty:
+        st.error("❌ No data to save.")
+        return None
+
+    df_to_store = df.copy()
     doc = {
         "register_type": "Drawing Meter Reading",
         "header": header,
         "timestamp": dt.datetime.utcnow(),
         "original_image_name": img_name,
-        "extracted_data": df.to_dict(orient="records"),
+        "extracted_data": df_to_store.to_dict(orient="records"),
         "validated": False,
     }
     key = {"original_image_name": img_name, "header.Date": header.get("Date")}
-    return coll.find_one_and_update(key, {"$set": doc}, upsert=True, return_document=ReturnDocument.AFTER)
+    return coll.find_one_and_update(
+        key, {"$set": doc}, upsert=True, return_document=ReturnDocument.AFTER
+    )
 
 # ------------------ UI ------------------
 st.title("🧵 Drawing Meter Reading OCR")
@@ -217,8 +229,9 @@ c1, c2, c3 = st.columns(3)
 
 if c1.button("💾 Save to MongoDB", type="primary"):
     saved = upsert_mongo(header_edit, edited, img_name, img_bytes)
-    st.success("✅ Saved to MongoDB")
-    st.json({"_id": str(saved.get("_id")), "Date": header_edit["Date"]})
+    if saved:
+        st.success("✅ Saved to MongoDB")
+        st.json({"_id": str(saved.get("_id")), "Date": header_edit["Date"]})
 
 csv_bytes = edited.to_csv(index=False).encode()
 c2.download_button("⬇️ CSV", data=csv_bytes, file_name="drawing_meter_data.csv", mime="text/csv")
@@ -227,4 +240,4 @@ json_bytes = edited.to_json(orient="records", indent=2).encode()
 c3.download_button("⬇️ JSON", data=json_bytes, file_name="drawing_meter_data.json", mime="application/json")
 
 st.markdown("---")
-st.caption("Notes: Each section (1st, 2nd, 3rd Drawing) is editable separately before export or saving.")
+st.caption("Each section (1st, 2nd, 3rd Drawing) is editable before export or saving.")
