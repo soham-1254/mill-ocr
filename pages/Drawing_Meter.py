@@ -16,7 +16,7 @@ load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://Finisher_card_sliver:Sohampanda@cluster0.mjn5qdx.mongodb.net/?retryWrites=true&w=majority")
 DB_NAME = os.getenv("DB_NAME", "mill_registers")
 COLL_NAME = os.getenv("COLLECTION_NAME", "drawing_meter_entries")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyDF_vacTeSPPgPOOe2Q6mUyfgHFN6r7CXA")
 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
