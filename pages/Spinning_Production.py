@@ -15,7 +15,7 @@ load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "mill_registers")
-COLL_NAME = os.getenv("SPINNING_COLLECTION", "spinning_entries")
+COLL_NAME = "spinning_production_entries"
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 mongo_client = MongoClient(MONGO_URI)
