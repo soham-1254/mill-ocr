@@ -13,7 +13,7 @@ import google.generativeai as genai
 st.set_page_config(page_title="Drawing Meter Reading OCR", layout="wide")
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://Finisher_card_sliver:Sohampanda@cluster0.mjn5qdx.mongodb.net/?retryWrites=true&w=majority")
 DB_NAME = os.getenv("DB_NAME", "mill_registers")
 COLL_NAME = os.getenv("COLLECTION_NAME", "drawing_meter_entries")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
