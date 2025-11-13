@@ -15,7 +15,7 @@ load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "mill_registers")
-COLL_NAME = os.getenv("COLLECTION_NAME", "spinning_production_entries")
+COLL_NAME = os.getenv("SPINNING_COLLECTION", "spinning_production_entries")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 mongo_client = MongoClient(MONGO_URI)
@@ -32,13 +32,14 @@ ROW_COLUMNS = [
     "Sl_No", "Quality", "Frame_A", "Frame_B", "Frame_C",
     "Production_A", "Production_B", "Production_C"
 ]
+NUMERIC_COLS = ["Frame_A", "Frame_B", "Frame_C", "Production_A", "Production_B", "Production_C"]
 
 # ------------------ HELPERS ------------------
 def json_safe_load(s: str) -> dict:
     try:
         return json.loads(s)
     except Exception:
-        m = re.search(r"\{.*\}", s, flags=re.S)
+        m = re.search(r"\{.*\}", str(s), flags=re.S)
         if m:
             try:
                 return json.loads(m.group(0))
@@ -48,19 +49,19 @@ def json_safe_load(s: str) -> dict:
 
 def to_int(x):
     try:
-        if x in [None, "", "null"]:
+        if x in [None, "", "null", "-"]:
             return None
         return int(str(x).strip())
     except Exception:
         return None
 
 def normalize_rows(rows: list) -> pd.DataFrame:
-    """Normalize and append total row."""
+    """Normalize OCR rows and append a safe Total row."""
     norm = []
-    for r in rows:
+    for r in rows or []:
         row = {
             "Sl_No": to_int(r.get("Sl_No")),
-            "Quality": r.get("Quality"),
+            "Quality": (r.get("Quality") or "").strip(),
             "Frame_A": to_int(r.get("Frame_A")),
             "Frame_B": to_int(r.get("Frame_B")),
             "Frame_C": to_int(r.get("Frame_C")),
@@ -69,18 +70,25 @@ def normalize_rows(rows: list) -> pd.DataFrame:
             "Production_C": to_int(r.get("Production_C")),
         }
         norm.append(row)
+
     df = pd.DataFrame(norm, columns=ROW_COLUMNS)
+
+    # Ensure numeric columns are numeric for stable sums
+    for col in NUMERIC_COLS:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
     if not df.empty:
         total_row = {
             "Sl_No": "Total", "Quality": "",
-            "Frame_A": df["Frame_A"].sum(),
-            "Frame_B": df["Frame_B"].sum(),
-            "Frame_C": df["Frame_C"].sum(),
-            "Production_A": df["Production_A"].sum(),
-            "Production_B": df["Production_B"].sum(),
-            "Production_C": df["Production_C"].sum(),
+            "Frame_A": int(df["Frame_A"].sum(skipna=True)),
+            "Frame_B": int(df["Frame_B"].sum(skipna=True)),
+            "Frame_C": int(df["Frame_C"].sum(skipna=True)),
+            "Production_A": int(df["Production_A"].sum(skipna=True)),
+            "Production_B": int(df["Production_B"].sum(skipna=True)),
+            "Production_C": int(df["Production_C"].sum(skipna=True)),
         }
         df = pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
+
     return df
 
 # ------------------ GEMINI OCR ------------------
@@ -92,14 +100,19 @@ def call_gemini_for_spinning(image_bytes: bytes, mime_type: str) -> dict:
 
     prompt = """
 You are extracting from a Spinning Production register.
-Return strict JSON:
+
+Return strict JSON ONLY:
 {
-  "header": {"Date": "DD/MM/YY", "Shift": "A/B/C", "Supervisor_Signature": "Name"},
+  "header": {"Date": "DD/MM/YY or DD/MM/YYYY", "Supervisor_Signature": "Name"},
   "rows": [
-    {"Sl_No": int, "Quality": str, "Frame_A": int, "Frame_B": int, "Frame_C": int,
+    {"Sl_No": int, "Quality": str,
+     "Frame_A": int, "Frame_B": int, "Frame_C": int,
      "Production_A": int, "Production_B": int, "Production_C": int}
   ]
 }
+- Each Frame/Production column is already shift-wise, so do NOT add Shift.
+- Keep integers as integers; if blank write null.
+- Do not include any text outside JSON.
 """
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
@@ -115,12 +128,17 @@ Return strict JSON:
 
 # ------------------ MONGO UPSERT ------------------
 def upsert_mongo(header: dict, df: pd.DataFrame, img_name: str, raw_bytes: bytes):
+    # Optional: avoid storing the "Total" row in Mongo
+    df_to_store = df.copy()
+    if not df_to_store.empty:
+        df_to_store = df_to_store[df_to_store["Sl_No"].astype(str).str.lower() != "total"]
+
     doc = {
         "register_type": "Spinning Production",
         "header": header,
         "timestamp": dt.datetime.utcnow(),
         "original_image_name": img_name,
-        "extracted_data": df.to_dict(orient="records"),
+        "extracted_data": df_to_store.to_dict(orient="records"),
         "validated": False,
     }
     key = {"original_image_name": img_name, "header.Date": header.get("Date")}
@@ -150,7 +168,7 @@ if not img_bytes:
     st.info("Upload or capture a Spinning Production sheet image to start.")
     st.stop()
 
-st.image(img_bytes, caption="Input Image", use_container_width=True)
+st.image(img_bytes, caption="Input Image", use_column_width=True)
 st.markdown("**Step 1:** Extracting with Gemini…")
 
 data = call_gemini_for_spinning(img_bytes, mime)
@@ -163,11 +181,10 @@ st.markdown("**Step 2: Preview & Edit**")
 edited = st.data_editor(df, use_container_width=True, num_rows="dynamic")
 
 # Header inputs
-c1, c2, c3 = st.columns(3)
+c1, c2 = st.columns(2)
 date_val = c1.text_input("Date", value=header.get("Date") or "")
-shift_val = c2.text_input("Shift", value=header.get("Shift") or "")
-sup_val = c3.text_input("Supervisor Signature", value=header.get("Supervisor_Signature") or "")
-header_edit = {"Date": date_val, "Shift": shift_val, "Supervisor_Signature": sup_val}
+sup_val = c2.text_input("Supervisor Signature", value=header.get("Supervisor_Signature") or "")
+header_edit = {"Date": date_val, "Supervisor_Signature": sup_val}
 
 # ------------------ SAVE / EXPORT ------------------
 st.markdown("**Step 3: Save & Export**")
